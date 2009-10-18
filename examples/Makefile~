@@ -1,0 +1,57 @@
+# Makefile.
+
+SHELL = '/bin/sh'
+
+CXX = g++
+
+CXXFLAGS = -g -O2 -I/home/eecs/benh/local/include -I/home/eecs/benh/local/include
+
+LIBEV = /scratch/benh/libprocess/examples/../third_party/libev-3.8
+
+BOOST = /scratch/benh/libprocess/examples/../third_party/boost-1.37.0
+
+HTTP_PARSER = http-parser
+
+# Add .. to CXXFLAGS.
+CXXFLAGS += -I/scratch/benh/libprocess/examples/..
+
+# Add libev to CXXFLAGS.
+CXXFLAGS += -I$(LIBEV)
+
+# Add Boost to CXXFLAGS.
+CXXFLAGS += -I$(BOOST)
+
+# Add dependency tracking to CXXFLAGS.
+CXXFLAGS += -MMD -MP
+
+# Add directories for libev and libprocess.
+LDFLAGS += -L/scratch/benh/libprocess/examples/.. -L$(LIBEV)  -L/home/eecs/benh/local/lib -L/home/eecs/benh/local/lib
+
+# Add libev and libprocess to LIBS.
+LIBS += -lprocess -lev -llithe -lht -lpthread 
+
+HTTPD_OBJ = httpd.o
+
+HTTPD = httpd
+
+EXAMPLES_OBJ = $(HTTDP_OBJ)
+
+EXAMPLES = $(HTTDP)
+
+default: all
+
+-include $(patsubst %.o, %.d, $(EXAMPLES_OBJ))
+
+$(EXAMPLES_OBJ): %.o: %.cpp 
+	$(CXX) -c $(CXXFLAGS) -o $@ $<
+
+$(HTTPD): $(HTTPD_OBJ)
+	$(CXX) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+all: $(EXAMPLES)
+
+clean:
+	echo $(EXAMPLES_OBJ)
+	rm -rf $(patsubst %.o, %.d, $(EXAMPLES_OBJ)) $(EXAMPLES_OBJ) $(EXAMPLES)
+
+.PHONY: default all clean

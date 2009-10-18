@@ -11,10 +11,16 @@
 #include <boost/variant/get.hpp>
 
 #include "process.hpp"
-#include "serialize.hpp"
+#include "serialization.hpp"
 
-using process::serialize::serializer;
-using process::serialize::deserializer;
+using process::serialization::serializer;
+using process::serialization::deserializer;
+
+namespace process { namespace serialization {
+
+void operator & (serializer &, const ::boost::tuples::null_type &);
+
+}}
 
 namespace process { namespace tuple {
   
@@ -599,6 +605,16 @@ protected:
     send(to, pack<ID>(t0, t1, t2, t3, t4, t5, t6, t7, t8, t9));
   }
 
+  MSGID receive()
+  {
+    return receive(0);
+  }
+
+  MSGID receive(time_t secs)
+  {
+    Process::receive(secs);
+  }
+
   template <MSGID ID>
   void receive(const ::boost::variant<
 	       typename field<0, ID>::type &,
@@ -617,11 +633,10 @@ protected:
   }
 };
 
-
-void operator & (serializer &, const ::boost::tuples::null_type &);
-
-
 }}
+
+
+
 
 #endif /* TUPLE_HPP */
 

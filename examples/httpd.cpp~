@@ -1,0 +1,246 @@
+/* TODO(benh): Complete HttpParser & HttpMessage implementation. */
+/* TODO(benh): Turn off Nagle (on TCP_NODELAY) for pipelined requests. */
+
+#include <process.hpp>
+
+#include <iostream>
+#include <map>
+#include <sstream>
+
+#include <arpa/inet.h>
+
+#include <sys/sendfile.h>
+
+#include "http-parser/http_parser.h"
+#include "net.hpp"
+
+using std::string;
+using std::map;
+
+
+#define malloc(bytes)                                               \
+  ({ void *tmp; if ((tmp = malloc(bytes)) == NULL) abort(); tmp; })
+
+#define realloc(address, bytes)                                     \
+  ({ void *tmp; if ((tmp = realloc(address, bytes)) == NULL) abort(); tmp; })
+
+#define HTTP_500                                                    \
+  "HTTP/1.1 500 Internal Server Error\r\n\r\n"
+
+#define HTTP_501                                                    \
+  "HTTP/1.1 501 Not Implemented\r\n\r\n"
+
+#define HTTP_404                                                    \
+  "HTTP/1.1 404 Not Found\r\n\r\n"
+
+
+struct HttpMessage
+{
+  unsigned short method;
+  /* TODO(*): Use HTTP_MAX_URI_SIZE. */
+  string uri;
+};
+
+
+class HttpParser
+{
+protected:
+  static int on_uri(http_parser *parser, const char *p, size_t len)
+  {
+    HttpMessage *message = (HttpMessage *) parser->data;
+    message->uri += string(p, len);
+    return 0;
+  }
+
+  static int on_headers_complete(http_parser *parser)
+  {
+    HttpMessage *message = (HttpMessage *) parser->data;
+    message->method = parser->method;
+    return 0;
+  }
+
+public:
+  static HttpMessage * parse(const string &raw)
+  {
+    http_parser parser;
+    http_parser_init(&parser, HTTP_REQUEST);
+
+    HttpMessage *message = new HttpMessage;
+
+    parser.data = message;
+
+    parser.on_message_begin     = NULL;
+    parser.on_header_field      = NULL;
+    parser.on_header_value      = NULL;
+    parser.on_path              = NULL;
+    parser.on_uri               = &HttpParser::on_uri;
+    parser.on_fragment          = NULL;
+    parser.on_query_string      = NULL;
+    parser.on_body              = NULL;
+    parser.on_headers_complete  = &HttpParser::on_headers_complete;
+    parser.on_message_complete  = NULL;
+
+    http_parser_execute(&parser, raw.c_str(), raw.length());
+    
+    if (http_parser_has_error(&parser))
+      abort();
+
+    return message;
+  }
+};
+
+
+class HttpConnection : public SocketProcess<TCP>
+{
+protected:
+  void operator () ()
+  {
+    string raw;
+
+    /* Read headers (until CRLF CRLF). */
+    do {
+      char buf[512];
+      ssize_t len = read(buf, 512);
+      raw += string(buf, len);
+    } while (raw.find("\r\n\r\n") == string::npos);
+
+    /* Parse headers. */
+    HttpMessage *message = HttpParser::parse(raw);
+
+    /* Handle request. */
+    switch (message->method) {
+    case HTTP_GET: {
+      message->uri =
+	message->uri != "/"
+	? "." + message->uri
+	: "./index.html";
+
+      /* Open file (if possible). */
+      int fd;
+
+      if ((fd = open(message->uri.c_str(), O_RDONLY, 0)) < 0) {
+	write(HTTP_404, strlen(HTTP_404));
+	close();
+	return;
+      }
+
+      /* Lookup file size. */
+      struct stat fd_stat;
+
+      if (fstat(fd, &fd_stat) < 0) {
+	write(HTTP_500, strlen(HTTP_500));
+	close();
+	return;
+      }
+
+      /* Transmit reply header. */
+      std::stringstream out;
+
+      out <<
+	"HTTP/1.1 200 OK\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: " << fd_stat.st_size << "\r\n"
+	"\r\n";
+
+      write(out.str().c_str(), out.str().size());
+
+      /* Transmit file (TODO(benh): Use file cache.). */
+      if (::sendfile(s, fd, 0, fd_stat.st_size) != fd_stat.st_size)
+	abort();
+
+      close();
+      break;
+    }
+
+    default:
+      /* Unimplemented. */
+      write(HTTP_501, strlen(HTTP_501));
+      close();
+      break;
+    }
+  }
+
+public:
+  HttpConnection(int s) : SocketProcess<TCP>(s) {}
+  ~HttpConnection() {}
+};
+
+
+enum HTTP_MESSAGES { HTTP_ACCEPTED_CONNECTION = PROCESS_MSGID };
+
+class HttpAcceptor : public Acceptor<TCP>
+{
+private:
+  PID server;
+
+protected:
+  void operator () ()
+  {
+    do {
+      struct sockaddr_in addr;
+      int c = accept(addr);
+      send(server, HTTP_ACCEPTED_CONNECTION, &c, sizeof(c));
+    } while (true);
+  }
+
+public:
+  HttpAcceptor(const PID &_server, int s)
+    : Acceptor<TCP>(s), server(_server) {}
+};
+
+
+class HttpServer : public Server<TCP>
+{
+private:
+  map<PID, HttpConnection *> connections;
+
+protected:
+  void operator () ()
+  {
+    int on = 1;
+    setsockopt(SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    bind();
+    listen(100000);
+
+    HttpAcceptor *acceptor = new HttpAcceptor(self(), s);
+    link(*spawn(*acceptor));
+
+    do {
+      switch (receive()) {
+      case HTTP_ACCEPTED_CONNECTION: {
+	int c = * ((int *) body());
+	HttpConnection *connection = new HttpConnection(c);
+	PID &pid = link(*spawn(*connection));
+	connections[pid] = connection;
+// 	std::cout <<
+// 	  "spawned HttpConnection (" << pid.pipe << ")" << std::endl;
+	break;
+      }
+      case PROCESS_EXIT: {
+	HttpConnection *connection = connections.find(from())->second;
+	connections.erase(from());
+	delete connection;
+// 	std::cout <<
+// 	  "deleted HttpConnection (" << from().pipe << ")" << std::endl;
+	break;
+      }
+      default:
+	std::cout << "HttpServer received unexpected message" << std::endl;
+	break;
+      }
+    } while (true);
+  }
+
+public:
+  HttpServer() : Server<TCP>(INADDR_ANY, 8080) {}
+};
+
+
+
+int main(int argc, char **argv)
+{
+  PID *server = Process::spawn(*new HttpServer());
+//   Process::wait(1, server);
+  getc(stdin);
+  return 0;
+}

@@ -1,8 +1,10 @@
+#include <stdlib.h>
+
 #include "tuple.hpp"
 
-namespace process { namespace serialize {
+namespace process { namespace serialization {
 
-void serializer::operator & (const ::boost::tuples::null_type &)
+void operator & (serializer &, const ::boost::tuples::null_type &)
 {
   abort();
 }

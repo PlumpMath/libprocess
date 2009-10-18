@@ -5,6 +5,79 @@ AC_PREREQ(2.61)
 AC_INIT
 AC_CONFIG_SRCDIR([process.cpp])
 
+# Checks for programs.
+AC_PROG_CXX([g++])
+AC_PROG_CC([gcc])
+
+# Check for pthread library.
+AC_CHECK_LIB([pthread], [pthread_create], [], [AC_MSG_FAILURE([
+*** The pthread library is missing or cannot be found.])])
+
+# Check for the ht.
+AC_ARG_WITH([ht],
+            AC_HELP_STRING([--with-ht=prefix],
+                           [find headers in prefix/include; library in prefix/lib]),
+	    [
+	    case "$with_ht" in
+		 yes) AC_MSG_ERROR([
+*** --with-ht requires an argument]) ;;
+		 ''|no) AC_MSG_ERROR([
+*** The ht library is REQUIRED and cannot be ommited using --without-ht.]) ;;
+		 *) CFLAGS="$CFLAGS -I$withval/include"
+		    CPPFLAGS="$CPPFLAGS -I$withval/include"
+		    CXXFLAGS="$CXXFLAGS -I$withval/include"
+		    LDFLAGS="$LDFLAGS -L$withval/lib"
+		    LIBS="-lht $LIBS" ;;
+	    esac
+	    ],
+	    [])
+
+AC_MSG_CHECKING(for ht)
+AC_LINK_IFELSE([AC_LANG_PROGRAM([
+		[#include <ht.h>
+                void entry() { }]],
+		[ht_request(1);])],
+		[AC_DEFINE([HAVE_HT], [1],
+                          [Define if you have libht])],
+		[AC_MSG_RESULT(no)
+		 AC_MSG_FAILURE([
+*** The ht library is missing or cannot be found.
+*** Did you try using --with-ht=prefix?])])
+AC_MSG_RESULT(yes)
+
+# Check for the Lithe.
+AC_ARG_WITH([lithe],
+            AC_HELP_STRING([--with-lithe=prefix],
+                           [find headers in prefix/include, library in prefix/lib]),
+	    [
+	    case "$with_lithe" in
+		 yes) AC_MSG_ERROR([
+*** --with-lithe requires an argument]) ;;
+		 ''|no) AC_MSG_ERROR([
+*** Lithe is REQUIRED and cannot be ommited using --without-lithe.]) ;;
+		 *) CFLAGS="$CFLAGS -I$withval/include"
+		    CPPFLAGS="$CPPFLAGS -I$withval/include"
+		    CXXFLAGS="$CXXFLAGS -I$withval/include"
+		    LDFLAGS="$LDFLAGS -L$withval/lib"
+		    LIBS="-llithe $LIBS" ;;
+	    esac
+	    ],
+	    [])
+
+AC_MSG_CHECKING(for lithe)
+AC_LINK_IFELSE([AC_LANG_PROGRAM([
+		[#include <lithe.h>
+                ]],
+		[lithe_sched_request(1);])],
+		[AC_DEFINE([HAVE_LITHE], [1],
+                          [Define if you have Lithe])],
+		[AC_MSG_RESULT(no)
+		 AC_MSG_FAILURE([
+*** Lithe is missing or cannot be found.
+*** Did you try using --with-lithe=prefix?])])
+AC_MSG_RESULT(yes)
+
+
 #AC_ARG_WITH([boost-headers],
 #  AC_HELP_STRING([--with-boost-headers=DIR],
 #                 [find Boost headers in DIR]),
@@ -19,10 +92,6 @@ AC_CONFIG_SRCDIR([process.cpp])
 #                       CXXFLAGS="$CXXFLAGS -I$withval" ;;
 #	          esac],
 #	         [])
-
-# Checks for programs.
-AC_PROG_CXX([g++])
-AC_PROG_CC([gcc])
 
 # Look for BOOST_PP.
 #AC_LANG_PUSH([C++])
@@ -57,7 +126,7 @@ AC_FUNC_REALLOC
 AC_FUNC_SELECT_ARGTYPES
 AC_CHECK_FUNCS([gethostbyname gethostname getpagesize memset select socket])
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile examples/Makefile])
 AC_CONFIG_SUBDIRS([third_party/libev-3.8])
 
 AC_OUTPUT

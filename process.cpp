@@ -83,7 +83,7 @@ using std::set;
 #define Kilobyte (1024*Byte)
 #define Megabyte (1024*Kilobyte)
 #define Gigabyte (1024*Megabyte)
-#define PROCESS_STACK_SIZE (64*Kilobyte)
+#define PROCESS_STACK_SIZE (16*Kilobyte)
 
 #define malloc(bytes)                                               \
   ({ void *tmp; if ((tmp = malloc(bytes)) == NULL) abort(); tmp; })

@@ -29,8 +29,10 @@ LIBS += -lprocess -lev
 
 default: all
 
-python/_process.so: process.i
+swig: process.i
 	swig -c++ -python -threads -I.. -o python/process.cpp -outdir python process.i
+
+python/_process.so: python/process.cpp python/process.h
 	$(CXX) $(CXXFLAGS) -shared -o $@ python/process.cpp $(LDFLAGS) $(LIBS)
 
 python: python/_process.so
@@ -38,9 +40,6 @@ python: python/_process.so
 all: python
 
 clean:
-	rm -rf python/process.cpp
-	rm -rf python/process.h
-	rm -rf python/process.py
 	rm -rf python/_process.so
 
 .PHONY: default python all clean

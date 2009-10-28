@@ -14,6 +14,7 @@
 #include <netinet/udp.h>
 
 #include <sys/ioctl.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 
 #include <stdexcept>
@@ -75,7 +76,7 @@ protected:
   {
     ssize_t len;
     do {
-      await(s, RDONLY);
+      while (!await(s, RDONLY));
       
       len = ::recv(s, buf, bytes, 0);
 
@@ -92,7 +93,7 @@ protected:
   {
     size_t offset = 0;
     do {
-      await(s, WRONLY);
+      while (!await(s, WRONLY));
 
       size_t len =
 	::send(s, (char *) buf + offset, bytes - offset, MSG_NOSIGNAL);
@@ -110,7 +111,7 @@ protected:
   {
     off_t offset = 0;
     do {
-      await(s, WRONLY);
+      while (!await(s, WRONLY));
 
       size_t len = ::sendfile(s, fd, 0, bytes - offset);
 
@@ -146,7 +147,7 @@ protected:
     int c;
 
     do {
-      await(SocketProcess<protocol>::s, Process::RDONLY);
+      while (!await(SocketProcess<protocol>::s, Process::RDONLY));
 
       size_t size = sizeof(struct sockaddr_in);
 

@@ -16,7 +16,7 @@ AC_CHECK_LIB([pthread], [pthread_create], [], [AC_MSG_FAILURE([
 # Check for the ht.
 AC_ARG_WITH([ht],
             AC_HELP_STRING([--with-ht=prefix],
-                           [find headers in prefix/include; library in prefix/lib]),
+                           [find headers in prefix/include/ht; library in prefix/lib]),
 	    [
 	    case "$with_ht" in
 		 yes) AC_MSG_ERROR([
@@ -34,7 +34,7 @@ AC_ARG_WITH([ht],
 
 AC_MSG_CHECKING(for ht)
 AC_LINK_IFELSE([AC_LANG_PROGRAM([
-		[#include <ht.h>
+		[#include <ht/ht.h>
                 void entry() { }]],
 		[ht_request(1);])],
 		[AC_DEFINE([HAVE_HT], [1],
@@ -126,7 +126,7 @@ AC_FUNC_REALLOC
 AC_FUNC_SELECT_ARGTYPES
 AC_CHECK_FUNCS([gethostbyname gethostname getpagesize memset select socket])
 
-AC_CONFIG_FILES([Makefile examples/Makefile])
+AC_CONFIG_FILES([Makefile examples/Makefile swig/Makefile])
 AC_CONFIG_SUBDIRS([third_party/libev-3.8])
 
 AC_OUTPUT

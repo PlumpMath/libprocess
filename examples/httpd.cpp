@@ -1,3 +1,4 @@
+/* TODO(benh): TCP_CORK!!!!! */
 /* TODO(benh): Complete HttpParser & HttpMessage implementation. */
 /* TODO(benh): Turn off Nagle (on TCP_NODELAY) for pipelined requests. */
 
@@ -12,8 +13,6 @@
 #include <stdexcept>
 
 #include <arpa/inet.h>
-
-#include <sys/sendfile.h>
 
 #include "net.hpp"
 
@@ -107,6 +106,8 @@ class HttpConnection : public SocketProcess<TCP>
 protected:
   void operator () ()
   {
+    //cout << ht_id() << ": running " << this << " connection (1)" << endl;
+
     string raw;
 
     /* Read headers (until CRLF CRLF). */
@@ -115,6 +116,8 @@ protected:
       ssize_t len = recv(buf, 512);
       raw += string(buf, len);
     } while (raw.find("\r\n\r\n") == string::npos);
+
+    //cout << ht_id() << ": running " << this << " connection (2)" << endl;
 
     /* Parse headers. */
     HttpMessage *message = HttpParser::parse(raw);
@@ -174,8 +177,12 @@ protected:
 
       send(out.str().c_str(), out.str().size());
 
+      //cout << ht_id() << ": running " << this << " connection (3)" << endl;
+
       /* Transmit file (TODO(benh): Use file cache.). */
       sendfile(fd, fd_stat.st_size);
+
+      //cout << ht_id() << ": running " << this << " connection (4)" << endl;
 
       close(fd);
 
@@ -210,6 +217,7 @@ protected:
     do {
       struct sockaddr_in addr;
       int c = accept(addr);
+      //cout << ht_id() << ": running acceptor" << endl;
       send<ACCEPT>(server, c);
     } while (true);
   }
@@ -239,6 +247,7 @@ protected:
     do {
       switch (receive()) {
       case ACCEPT: {
+	//cout << ht_id() << ": running server (accept)" << endl;
 	int c;
 	unpack<ACCEPT>(c);
 	HttpConnection *connection = new HttpConnection(c);
@@ -247,6 +256,7 @@ protected:
 	break;
       }
       case PROCESS_EXIT: {
+	//cout << ht_id() << ": running server (exit)" << endl;
 	if (from() == acceptor->getPID()) {
 	  throw runtime_error("unimplemented acceptor failure");
 	} else if (connections.find(from()) != connections.end()) {
@@ -275,9 +285,19 @@ int main(int argc, char **argv)
   /* TODO(benh): Blah, 'sendfile' doesn't let us use MSG_NOSIGNAL. :(  */
   signal(SIGPIPE, SIG_IGN);
 
-  if (argc != 2)
+  if (argc != 2) {
     cerr << "usage: " << argv[0] << " <port>" << endl;
-  else
-    Process::wait(Process::spawn(new HttpServer(atoi(argv[1]))));
+    return -1;
+  }
+
+#ifdef USE_LITHE
+  ProcessScheduler *scheduler = new ProcessScheduler();
+  Process::spawn(new HttpServer(atoi(argv[1])));
+  for (;;)
+    sleep(10000);
+#else
+  Process::wait(Process::spawn(new HttpServer(atoi(argv[1]))));
+#endif /* USE_LITHE */
+
   return 0;
 }

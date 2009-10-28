@@ -204,26 +204,27 @@ protected:
   template <MSGID ID>
   void unpack(typename field<0, ID>::type &t0)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
   }
 
-
   template <MSGID ID>
   void unpack(typename field<0, ID>::type &t0,
 	      typename field<1, ID>::type &t1)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
-
-    std::istringstream is(data);
-
+    const char *data;
+    size_t length;
+    
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -236,11 +237,12 @@ protected:
 	      typename field<1, ID>::type &t1,
 	      typename field<2, ID>::type &t2)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -254,11 +256,12 @@ protected:
 	      typename field<2, ID>::type &t2,
 	      typename field<3, ID>::type &t3)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -274,11 +277,12 @@ protected:
 	      typename field<3, ID>::type &t3,
 	      typename field<4, ID>::type &t4)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -296,11 +300,12 @@ protected:
 	      typename field<4, ID>::type &t4,
 	      typename field<5, ID>::type &t5)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -320,11 +325,12 @@ protected:
 	      typename field<5, ID>::type &t5,
 	      typename field<6, ID>::type &t6)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -346,11 +352,12 @@ protected:
 	      typename field<6, ID>::type &t6,
 	      typename field<7, ID>::type &t7)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -374,11 +381,12 @@ protected:
 	      typename field<7, ID>::type &t7,
 	      typename field<8, ID>::type &t8)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -404,11 +412,12 @@ protected:
 	      typename field<8, ID>::type &t8,
 	      typename field<9, ID>::type &t9)
   {
-    std::pair<const char *, size_t> b = Process::body();
-    std::string data(b.first, b.second);
+    const char *data;
+    size_t length;
 
-    std::istringstream is(data);
-
+    data = Process::body(&length);
+    std::string s(data, length);
+    std::istringstream is(s);
     deserializer d(is);
 
     d & t0;
@@ -482,7 +491,7 @@ protected:
 
     std::string data = os.str();
 
-    Process::send(to, ID, std::make_pair(data.data(), data.size()));
+    Process::send(to, ID, data.data(), data.size());
   }
 
   template <MSGID ID>

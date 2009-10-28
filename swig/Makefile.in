@@ -1,0 +1,44 @@
+# Makefile.
+
+SHELL = '/bin/sh'
+
+CXX = @CXX@
+
+CXXFLAGS = @CXXFLAGS@
+
+PYTHON_HEADERS = /usr/include/python2.5
+
+# Add Python headers to include path.
+CXXFLAGS += -I$(PYTHON_HEADERS)
+
+# Add libprocess headers to include path.
+CXXFLAGS += -I@abs_srcdir@/..
+
+# Compile with -fPIC
+CXXFLAGS += -fPIC
+
+# Add directory for libprocess.
+LDFLAGS += -L.. @LDFLAGS@
+
+LIBEV = ../third_party/libev-3.8
+
+# Add libev (as static) and libprocess to LIBS.
+LIBS += $(LIBEV)/.libs/ev.o $(LIBEV)/.libs/event.o -lprocess
+
+default: all
+
+swig: process.i
+	swig -c++ -python -threads -I.. -o python/process.cpp -outdir python process.i
+
+python/_process.so: @abs_srcdir@/python/process.cpp @abs_srcdir@/python/process.h
+	@if [ ! -d python ]; then mkdir python; fi
+	$(CXX) $(CXXFLAGS) -shared -o $@ @abs_srcdir@/python/process.cpp $(LDFLAGS) $(LIBS)
+
+python: python/_process.so
+
+all: python
+
+clean:
+	rm -f python/_process.so
+
+.PHONY: default python all clean

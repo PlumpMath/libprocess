@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <ucontext.h>
 
+#include <lithe.hh>
+
+#include <ht/ht.h>
+#include <ht/spinlock.h>
+
 #include <iostream>
 #include <queue>
 #include <string>
@@ -42,23 +47,55 @@ struct msg
   uint32_t len;
 };
 
+
+#ifdef USE_LITHE
+
+using lithe::Scheduler;
+
+class ProcessScheduler : public Scheduler
+{
+private:
+  lithe_task_t task;
+
+protected:
+  void enter();
+  void yield(lithe_sched_t *child);
+  void reg(lithe_sched_t *child);
+  void unreg(lithe_sched_t *child);
+  void request(lithe_sched_t *child, int k);
+  void unblock(lithe_task_t *task);
+
+public:
+  ProcessScheduler();
+  ~ProcessScheduler();
+};
+
+#endif /* USE_LITHE */
+
+
+void * schedule(void *arg);
+
+
 class Process {
 private:
   friend class LinkManager;
   friend class ProcessManager;
+#ifdef USE_LITHE
+  friend class ProcessScheduler;
+#else
   friend void * schedule(void *arg);
-
-  /* Mutex protecting process. */
-  pthread_mutex_t mutex;
+#endif /* USE_LITHE */
 
   /* Flag indicating state of process. */
-  enum { READY,
+  enum { INIT,
+	 READY,
 	 RUNNING,
 	 RECEIVING,
 	 PAUSED,
 	 AWAITING,
-	 TIMEDOUT,
 	 WAITING,
+	 INTERRUPTED,
+	 TIMEDOUT,
 	 EXITED } state;
 
   /* Queue of messages received. */
@@ -73,16 +110,36 @@ private:
   /* Process PID. */
   PID pid;
 
+#ifdef USE_LITHE
+  lithe_task_t task;
+#endif /* USE_LITHE */
+
   /* Continuation/Context of process. */
   ucontext_t uctx;
 
+  /* Lock/mutex protecting internals. */
+#ifdef USE_LITHE
+  int l;
+  void lock() { spinlock_lock(&l); }
+  void unlock() { spinlock_unlock(&l); }
+#else
+  pthread_mutex_t m;
+  void lock() { pthread_mutex_lock(&m); }
+  void unlock() { pthread_mutex_unlock(&m); }
+#endif /* USE_LITHE */
+
   /* Enqueues the specified message. */
-  void enqueue(struct msg &msg);
+  void enqueue(struct msg *msg);
 
   /* Dequeues a message or returns NULL. */
   struct msg * dequeue();
-  
+
+#ifdef SWIGPYTHON
+public:
+#else  
 protected:
+#endif /* SWIG */
+
   Process();
 
   /* Function run when process spawned. */
@@ -94,47 +151,73 @@ protected:
   /* Returns the sender's PID of the last dequeued (current) message. */
   PID from();
 
-  MSGID msgid() { return current != NULL ? current->id : PROCESS_ERROR; }
+  MSGID msgid();
 
   /* Sends a message to PID. */
-  void send(const PID &to, MSGID id) { send(to, id, std::make_pair((char *) NULL, 0)); }
+  void send(const PID &, MSGID);
 
   /* Sends a message with data to PID. */
-  virtual void send(const PID &to, MSGID id, const std::pair<const char *, size_t> &body);
+  void send(const PID &, MSGID, const char *data, size_t length);
 
   /* Blocks for message indefinitely. */
-  MSGID receive() { return receive(0); }
+  MSGID receive();
 
   /* Blocks for message at most specified seconds. */
-  virtual MSGID receive(time_t secs);
+  MSGID receive(time_t);
 
   /* Returns pointer and length of body of last dequeued (current) message. */
-  virtual std::pair<const char *, size_t> body();
+  const char * body(size_t *length);
 
   /* Blocks at least specified seconds (may block longer). */
-  virtual void pause(time_t secs);
+  void pause(time_t);
 
   /* Links with the specified PID. */
-  virtual PID link(const PID &to);
+  PID link(const PID &);
 
   /* IO operations for awaiting. */
   enum { RDONLY = 01, WRONLY = 02, RDWR = 03 };
 
-  /* Wait until operation is ready for file descriptor. */
-  virtual void await(int fd, int op);
+  /* Wait until operation is ready for file descriptor (or message received). */
+  bool await(int fd, int op);
 
   /* Returns true if operation on file descriptor is ready. */
-  virtual bool ready(int fd, int op);
+  bool ready(int fd, int op);
 
 public:
-  const PID getPID() { return self(); }
+  virtual ~Process();
+
+  /* Returns pid of process; valid even before calling spawn. */
+  PID getPID();
 
   /* Spawn a new process. */
   static PID spawn(Process *process);
 
-  /* Wait for all the specified PID's to exit. */
-  static void wait(const PID &pid);
+  /* Wait for PID to exit (returns true if actually waited). */
+  static bool wait(PID pid);
 };
 
+
+inline MSGID Process::msgid()
+{
+  return current != NULL ? current->id : PROCESS_ERROR;
+}
+
+
+inline void Process::send(const PID &to, MSGID id)
+{
+  send(to, id, NULL, 0);
+}
+
+
+inline MSGID Process::receive()
+{
+  return receive(0);
+}
+
+
+inline PID Process::getPID()
+{
+  return self();
+}
 
 #endif /* PROCESS_HPP */

@@ -38,12 +38,9 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([
                 void entry() { }]],
 		[ht_request(1);])],
 		[AC_DEFINE([HAVE_HT], [1],
-                          [Define if you have libht])],
-		[AC_MSG_RESULT(no)
-		 AC_MSG_FAILURE([
-*** The ht library is missing or cannot be found.
-*** Did you try using --with-ht=prefix?])])
-AC_MSG_RESULT(yes)
+                          [Define if you have libht]) AC_MSG_RESULT(yes)],
+		[AC_MSG_RESULT(no)])
+
 
 # Check for the Lithe.
 AC_ARG_WITH([lithe],
@@ -53,8 +50,7 @@ AC_ARG_WITH([lithe],
 	    case "$with_lithe" in
 		 yes) AC_MSG_ERROR([
 *** --with-lithe requires an argument]) ;;
-		 ''|no) AC_MSG_ERROR([
-*** Lithe is REQUIRED and cannot be ommited using --without-lithe.]) ;;
+		 ''|no) ;;
 		 *) CFLAGS="$CFLAGS -I$withval/include"
 		    CPPFLAGS="$CPPFLAGS -I$withval/include"
 		    CXXFLAGS="$CXXFLAGS -I$withval/include"
@@ -70,12 +66,9 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([
                 ]],
 		[lithe_sched_request(1);])],
 		[AC_DEFINE([HAVE_LITHE], [1],
-                          [Define if you have Lithe])],
-		[AC_MSG_RESULT(no)
-		 AC_MSG_FAILURE([
-*** Lithe is missing or cannot be found.
-*** Did you try using --with-lithe=prefix?])])
-AC_MSG_RESULT(yes)
+                          [Define if you have Lithe]) AC_MSG_RESULT(yes)],
+		[AC_MSG_RESULT(no)])
+
 
 
 #AC_ARG_WITH([boost-headers],

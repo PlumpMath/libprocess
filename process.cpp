@@ -33,7 +33,9 @@
 
 #include <arpa/inet.h>
 
+#ifdef USE_LITHE
 #include <ht/atomic.h>
+#endif /* USE_LITHE */
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>

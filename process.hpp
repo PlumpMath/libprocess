@@ -4,10 +4,12 @@
 #include <stdlib.h>
 #include <ucontext.h>
 
+#ifdef USE_LITHE
 #include <lithe.hh>
 
 #include <ht/ht.h>
 #include <ht/spinlock.h>
+#endif /* USE_LITHE */
 
 #include <iostream>
 #include <queue>

@@ -21,8 +21,7 @@ AC_ARG_WITH([ht],
 	    case "$with_ht" in
 		 yes) AC_MSG_ERROR([
 *** --with-ht requires an argument]) ;;
-		 ''|no) AC_MSG_ERROR([
-*** The ht library is REQUIRED and cannot be ommited using --without-ht.]) ;;
+		 ''|no) ;;
 		 *) CFLAGS="$CFLAGS -I$withval/include"
 		    CPPFLAGS="$CPPFLAGS -I$withval/include"
 		    CXXFLAGS="$CXXFLAGS -I$withval/include"

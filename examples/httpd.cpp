@@ -293,6 +293,7 @@ int main(int argc, char **argv)
 #ifdef USE_LITHE
   ProcessScheduler *scheduler = new ProcessScheduler();
   Process::spawn(new HttpServer(atoi(argv[1])));
+  /* TODO(benh): Make Process::wait take and use the hart if using Lithe! */
   for (;;)
     sleep(10000);
 #else

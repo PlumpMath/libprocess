@@ -49,6 +49,7 @@
 
 #include <boost/tuple/tuple.hpp>
 
+#include <algorithm>
 #include <iostream>
 #include <list>
 #include <map>
@@ -69,6 +70,7 @@ using boost::tuple;
 using std::cout;
 using std::cerr;
 using std::endl;
+using std::find;
 using std::list;
 using std::make_pair;
 using std::map;
@@ -2096,7 +2098,91 @@ static void * node (void *arg)
 
 
 #ifdef USE_LITHE
+
 void ProcessScheduler::enter()
+{
+  if (waiter == -1)
+    __sync_bool_compare_and_swap(&waiter, -1, ht_id());
+
+  if (waiter == ht_id())
+    schedule();
+
+  lithe_sched_t *sched = NULL;
+
+  spinlock_lock(&lock);
+  {
+    int lowest = INT_MAX;
+    typedef pair<int, int> counts_t;
+    foreachpair (lithe_sched_t *child, counts_t &counts, children) {
+      /* Don't bother giving a hart unless it has been requested. */
+      if (counts.first < counts.second) {
+	/* Give to the most neglected child. */
+	if (counts.first < lowest) {
+	  sched = child;
+	  lowest = counts.first;
+	}
+      }
+    }
+    if (sched != NULL)
+      children[sched].first++;
+  }
+  spinlock_unlock(&lock);
+
+  if (sched != NULL)
+    lithe_sched_enter(sched);
+
+  lithe_sched_yield();
+}
+
+
+void ProcessScheduler::yield(lithe_sched_t *child)
+{
+  enter();
+}
+
+
+void ProcessScheduler::reg(lithe_sched_t *child)
+{
+  spinlock_lock(&lock);
+  {
+    children[child] = make_pair(0,0);
+  }
+  spinlock_unlock(&lock);
+}
+
+
+void ProcessScheduler::unreg(lithe_sched_t *child)
+{
+  int count;
+  spinlock_lock(&lock);
+  {
+    count = children[child].first;
+    children.erase(child);
+  }
+  spinlock_unlock(&lock);
+
+  cout << "child had a count of: " << count << " + 1 = " << count + 1 << endl;
+}
+
+
+void ProcessScheduler::request(lithe_sched_t *child, int k)
+{
+  spinlock_lock(&lock);
+  {
+    children[child] = make_pair(0, k);
+  }
+  spinlock_unlock(&lock);
+  lithe_sched_request(k);
+}
+
+
+void ProcessScheduler::unblock(lithe_task_t *task)
+{
+  assert(false);
+}
+
+
+void ProcessScheduler::schedule()
 {
   do {
     Process *process = ProcessManager::instance()->dequeue();
@@ -2119,6 +2205,13 @@ void ProcessScheduler::enter()
 	   process->state == Process::INTERRUPTED ||
 	   process->state == Process::TIMEDOUT);
 
+    assert(waiter == ht_id());
+    waiter = -1;
+
+    lithe_sched_request(1);
+
+//     cout << ht_id() << " running " << process->getPID() <<  endl;
+
     /* Start/Continue process. */
     if (process->state == Process::INIT)
       lithe_task_do(&process->task, trampoline, process);
@@ -2128,43 +2221,33 @@ void ProcessScheduler::enter()
 }
 
 
-void ProcessScheduler::yield(lithe_sched_t *child)
-{
-  assert(0);
-}
 
-
-void ProcessScheduler::reg(lithe_sched_t *child)
-{
-  assert(0);
-}
-
-
-void ProcessScheduler::unreg(lithe_sched_t *child)
-{
-  assert(0);
-}
-
-
-void ProcessScheduler::request(lithe_sched_t *child, int k) {
-  assert(0);
-}
-
-
-void ProcessScheduler::unblock(lithe_task_t *task)
-{
-  assert(0);
-}
+/*
+* N.B. For now, we can only support one ProcessScheduler at a
+* time. This is a deficiency of the singleton design for
+* ProcessManager and LinkManager, and should be addressed in the
+* future.
+*/
+static bool running = false;
 
 
 ProcessScheduler::ProcessScheduler()
 {
+  if (!__sync_bool_compare_and_swap(&running, false, true)) {
+    cerr << "only one process scheduler can be running" << endl;
+    abort();
+  }
+
   /* Setup scheduler. */
+  spinlock_init(&lock);
+
+  waiter = -1;
+
   if (lithe_sched_register_task(&funcs, this, &task) != 0)
     abort();
 
   /* Request a processing thread. */
-  if (lithe_sched_request(8) < 0)
+  if (lithe_sched_request(1) < 0)
     abort();
 }
 
@@ -2174,6 +2257,9 @@ ProcessScheduler::~ProcessScheduler()
   lithe_task_t *task;
   lithe_sched_unregister_task(&task);
   if (task != &this->task)
+    abort();
+
+  if (!__sync_bool_compare_and_swap(&running, true, false))
     abort();
 }
 
@@ -2679,6 +2765,9 @@ PID Process::spawn(Process *process)
 {
   if (process != NULL) {
     ProcessManager::instance()->spawn(process);
+#ifdef USE_LITHE
+    lithe_sched_request(1);
+#endif /* USE_LITHE */
     return process->pid;
   } else {
     PID pid = { 0, 0, 0 };

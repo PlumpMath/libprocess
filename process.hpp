@@ -12,6 +12,7 @@
 #endif /* USE_LITHE */
 
 #include <iostream>
+#include <map>
 #include <queue>
 #include <string>
 #include <utility>
@@ -57,7 +58,10 @@ using lithe::Scheduler;
 class ProcessScheduler : public Scheduler
 {
 private:
+  int lock;
+  int waiter;
   lithe_task_t task;
+  std::map<lithe_sched_t *, std::pair<int, int> > children;
 
 protected:
   void enter();
@@ -67,15 +71,18 @@ protected:
   void request(lithe_sched_t *child, int k);
   void unblock(lithe_task_t *task);
 
+  void schedule();
+
 public:
   ProcessScheduler();
   ~ProcessScheduler();
 };
 
-#endif /* USE_LITHE */
-
+#else
 
 void * schedule(void *arg);
+
+#endif /* USE_LITHE */
 
 
 class Process {

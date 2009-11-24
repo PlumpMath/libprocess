@@ -621,7 +621,7 @@ protected:
 
   MSGID receive(time_t secs)
   {
-    Process::receive(secs);
+    return Process::receive(secs);
   }
 
   template <MSGID ID>

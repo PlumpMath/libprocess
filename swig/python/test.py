@@ -5,9 +5,7 @@ import pickle
 from process import Process, PROCESS_MSGID
 
 
-PING = PROCESS_MSGID
-PONG = PING + 1
-FINISHED = PONG + 1
+PING, PONG, FINISHED = range(PROCESS_MSGID, PROCESS_MSGID + 3)
 
 
 class Ping(Process):

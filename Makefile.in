@@ -24,9 +24,15 @@ CXXFLAGS += -MMD -MP
 LIB_OBJ = process.o tuple.o record-process.o serialization.o
 LIB = libprocess.a
 
+LITHE_LIB_OBJ = process_lithe.o tuple_lithe.o record-process_lithe.o serialization_lithe.o
+LITHE_LIB = libprocess_lithe.a
+
+OBJS = $(LIB_OBJ) $(LITHE_LIB_OBJ)
+LIBS = $(LIB) $(LITHE_LIB)
+
 default: all
 
--include $(patsubst %.o, %.d, $(LIB_OBJ))
+-include $(patsubst %.o, %.d, $(OBJS))
 
 $(LIB_OBJ): %.o: @abs_srcdir@/%.cpp 
 	$(CXX) -c $(CXXFLAGS) -o $@ $<
@@ -34,14 +40,20 @@ $(LIB_OBJ): %.o: @abs_srcdir@/%.cpp
 $(LIB): $(LIB_OBJ)
 	$(AR) rcs $@ $^
 
+$(LITHE_LIB_OBJ): %_lithe.o: @abs_srcdir@/%.cpp
+	$(CXX) -c -DUSE_LITHE $(CXXFLAGS) -o $@ $<
+
+$(LITHE_LIB): $(LITHE_LIB_OBJ)
+	$(AR) rcs $@ $^
+
 third_party:
 	$(MAKE) -C @abs_builddir@/third_party/libev-3.8
 
-all: third_party $(LIB)
+all: third_party $(LIBS)
 
 clean:
 	$(MAKE) -C @abs_builddir@/third_party/libev-3.8 clean
-	rm -f $(patsubst %.o, %.d, $(LIB_OBJ)) $(LIB_OBJ) $(LIB)
+	rm -f $(patsubst %.o, %.d, $(OBJS)) $(OBJS) $(LIBS)
 
 distclean: clean
 	$(MAKE) -C @abs_builddir@/third_party/libev-3.8 dist clean

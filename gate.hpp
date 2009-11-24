@@ -29,12 +29,13 @@ public:
     pthread_mutex_destroy(&mutex);
   }
 
-  void open()
+  void open(bool all = true)
   {
     pthread_mutex_lock(&mutex);
     {
       state++;
-      pthread_cond_broadcast(&cond);
+      if (all) pthread_cond_broadcast(&cond);
+      else pthread_cond_signal(&cond);
     }
     pthread_mutex_unlock(&mutex);
   }

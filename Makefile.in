@@ -27,8 +27,13 @@ LIB = libprocess.a
 LITHE_LIB_OBJ = process_lithe.o tuple_lithe.o record-process_lithe.o serialization_lithe.o
 LITHE_LIB = libprocess_lithe.a
 
+ifdef HAVE_LITHE
 OBJS = $(LIB_OBJ) $(LITHE_LIB_OBJ)
 LIBS = $(LIB) $(LITHE_LIB)
+else
+OBJS = $(LIB_OBJ)
+LIBS = $(LIB)
+endif
 
 default: all
 

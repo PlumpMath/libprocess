@@ -37,7 +37,8 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([
                 void entry() { }]],
 		[ht_request(1);])],
 		[AC_DEFINE([HAVE_HT], [1],
-                          [Define if you have libht]) AC_MSG_RESULT(yes)],
+                          [Define if you have libht])
+                 AC_MSG_RESULT(yes)],
 		[AC_MSG_RESULT(no)])
 
 
@@ -65,10 +66,9 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([
                 ]],
 		[lithe_sched_request(1);])],
 		[AC_DEFINE([HAVE_LITHE], [1],
-                          [Define if you have Lithe]) AC_MSG_RESULT(yes)],
+                          [Define if you have Lithe])
+                 AC_MSG_RESULT(yes)],
 		[AC_MSG_RESULT(no)])
-
-
 
 #AC_ARG_WITH([boost-headers],
 #  AC_HELP_STRING([--with-boost-headers=DIR],

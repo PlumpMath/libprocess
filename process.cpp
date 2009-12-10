@@ -50,6 +50,8 @@
 #include <boost/tuple/tuple.hpp>
 
 #include <algorithm>
+#include <deque>
+#include <fstream>
 #include <iostream>
 #include <list>
 #include <map>
@@ -63,12 +65,14 @@
 #include "gate.hpp"
 #include "process.hpp"
 #include "singleton.hpp"
+#include "utility.hpp"
 
 using boost::make_tuple;
 using boost::tuple;
 
 using std::cout;
 using std::cerr;
+using std::deque;
 using std::endl;
 using std::find;
 using std::list;
@@ -124,9 +128,6 @@ using std::stack;
 
 /* Local server socket. */
 static int s;
-
-/* Global 'pipe' id uniquely assigned to each process. */
-static uint32_t global_pipe = 0;
 
 /* Local IP address. */
 static uint32_t ip;
@@ -184,7 +185,10 @@ static ucontext_t proc_uctx_initial;
 static ucontext_t proc_uctx_running;
 
 /* Current process of processing thread. */
-static Process *proc_process;
+static __thread Process *proc_process;
+
+/* Global 'pipe' id uniquely assigned to each process. */
+static uint32_t global_pipe = 0;
 
 /* Status of processing thread. */
 static int idle = 0;
@@ -198,6 +202,20 @@ static bool initialized = false;
 /* Stack of stacks. */
 static stack<void *> *stacks = new stack<void *>();
 
+/* Record(s) for replay. */
+static std::fstream record_msgs;
+static std::fstream record_pipes;
+
+/* Replay. */
+static bool replay = false;
+
+/* Replay messages (id -> queue of messages). */
+static map<uint32_t, queue<struct msg *> > *replay_msgs =
+  new map<uint32_t, queue<struct msg *> >();
+
+/* Replay pipes (parent id -> stack of remaining child ids). */
+static map<uint32_t, deque<uint32_t> > *replay_pipes =
+  new map<uint32_t, deque<uint32_t> >();
 
 struct write_ctx {
   int len;
@@ -663,18 +681,20 @@ public:
       foreachpair (const PID &pid, set<Process *> processes, links) {
 	if (pid.ip == n.ip && pid.port == n.port) {
 	  /* N.B. If we call exited(pid) we might invalidate iteration. */
-	  /* Deliver PROCESS_EXIT messages. */
-	  foreach (Process *process, processes) {
-	    struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
-	    msg->from.pipe = pid.pipe;
-	    msg->from.ip = pid.ip;
-	    msg->from.port = pid.port;
-	    msg->to.pipe = process->pid.pipe;
-	    msg->to.ip = process->pid.ip;
-	    msg->to.port = process->pid.port;
-	    msg->id = PROCESS_EXIT;
-	    msg->len = 0;
-	    process->enqueue(msg);
+	  /* Deliver PROCESS_EXIT messages (if we aren't replaying). */
+	  if (!replay) {
+	    foreach (Process *process, processes) {
+	      struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
+	      msg->from.pipe = pid.pipe;
+	      msg->from.ip = pid.ip;
+	      msg->from.port = pid.port;
+	      msg->to.pipe = process->pid.pipe;
+	      msg->to.ip = process->pid.ip;
+	      msg->to.port = process->pid.port;
+	      msg->id = PROCESS_EXIT;
+	      msg->len = 0;
+	      process->enqueue(msg);
+	    }
 	  }
 	  removed.push_back(pid);
 	}
@@ -694,18 +714,20 @@ public:
 
       if (it != links.end()) {
 	set<Process *> processes = it->second;
-	/* Deliver PROCESS_EXIT messages. */
-	foreach (Process *process, processes) {
-	  struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
-	  msg->from.pipe = pid.pipe;
-	  msg->from.ip = pid.ip;
-	  msg->from.port = pid.port;
-	  msg->to.pipe = process->pid.pipe;
-	  msg->to.ip = process->pid.ip;
-	  msg->to.port = process->pid.port;
-	  msg->id = PROCESS_EXIT;
-	  msg->len = 0;
-	  process->enqueue(msg);
+	/* Deliver PROCESS_EXIT messages (if we aren't replaying). */
+	if (!replay) {
+	  foreach (Process *process, processes) {
+	    struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
+	    msg->from.pipe = pid.pipe;
+	    msg->from.ip = pid.ip;
+	    msg->from.port = pid.port;
+	    msg->to.pipe = process->pid.pipe;
+	    msg->to.ip = process->pid.ip;
+	    msg->to.port = process->pid.port;
+	    msg->id = PROCESS_EXIT;
+	    msg->len = 0;
+	    process->enqueue(msg);
+	  }
 	}
 	links.erase(pid);
       }
@@ -723,7 +745,7 @@ class ProcessManager : public Singleton<ProcessManager>
 {
 private:
   /* Map of all local spawned and running processes. */
-  map<int, Process *> processes;
+  map<uint32_t, Process *> processes;
 
   /* Map of all waiting processes. */
   map<Process *, list<Process *> > waiters;
@@ -762,6 +784,65 @@ private:
   }
 
 public:
+  void record(struct msg *msg)
+  {
+    acquire(processes);
+    {
+      record_msgs.write((char *) msg, sizeof(struct msg) + msg->len);
+      if (record_msgs.bad()) {
+	cerr << "failed to write to messages record" << endl;
+	abort();
+      }
+    }
+    release(processes);
+  }
+
+  void replay()
+  {
+    acquire(processes);
+    {
+      if (!record_msgs.eof()) {
+	struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
+
+	/* Read a message worth of data. */
+	record_msgs.width(sizeof(struct msg) + 1);
+	record_msgs >> (char *) msg;
+	if (record_msgs.bad()) {
+	  cerr << "failed to read from messages record" << endl;
+	  abort();
+	}
+
+	/* Read the body of the message if necessary. */
+	if (msg->len != 0) {
+	  struct msg *temp = msg;
+	  msg = (struct msg *) malloc(sizeof(struct msg));
+	  memcpy(msg, temp, sizeof(struct msg));
+	  free(temp);
+	  record_msgs.width(msg->len + 1);
+	  record_msgs >> (char *) msg + sizeof(struct msg);
+	  if (record_msgs.bad()) {
+	    cerr << "failed to read from messages record" << endl;
+	    abort();
+	  }
+	}
+
+	/* Add message to be delivered later. */
+	(*replay_msgs)[msg->to.pipe].push(msg);
+      }
+
+      /* Deliver any messages to available processes. */
+      foreachpair (uint32_t pipe, Process *process, processes) {
+	queue<struct msg *> &msgs = (*replay_msgs)[pipe];
+	while (!msgs.empty()) {
+	  struct msg *msg = msgs.front();
+	  msgs.pop();
+	  process->enqueue(msg);
+	}
+      }
+    }
+    release(processes);
+  }
+
 #ifdef USE_LITHE
   static void do_run(lithe_task_t *task, void *arg)
   {
@@ -787,8 +868,7 @@ public:
       (*process)();
     } catch (const std::exception &e) {
       cerr << "libprocess: " << process->pid
-	   << " exited due to "
-	   << e.what() << endl;
+	   << " exited due to " << e.what() << endl;
     } catch (...) {
       cerr << "libprocess: " << process->pid
 	   << " exited due to unknown exception" << endl;
@@ -1237,7 +1317,7 @@ public:
     /* Now we can add the process to the waiters. */
     acquire(processes);
     {
-      map<int, Process *>::iterator it = processes.find(pid.pipe);
+      map<uint32_t, Process *>::iterator it = processes.find(pid.pipe);
       if (it != processes.end()) {
 	if (it->second->state != Process::EXITED)
 	  waiters[it->second].push_back(process);
@@ -1269,7 +1349,7 @@ public:
     /* Now we can add the process to the waiters. */
     acquire(processes);
     {
-      map<int, Process *>::iterator it = processes.find(pid.pipe);
+      map<uint32_t, Process *>::iterator it = processes.find(pid.pipe);
       if (it != processes.end()) {
 	if (it->second->state != Process::EXITED)
 	  waiters[it->second].push_back(process);
@@ -1310,7 +1390,7 @@ public:
     /* Try and approach the gate if necessary. */
     acquire(processes);
     {
-      map<int, Process *>::iterator it = processes.find(pid.pipe);
+      map<uint32_t, Process *>::iterator it = processes.find(pid.pipe);
       if (it != processes.end()) {
 	if (it->second->state != Process::EXITED) {
 	  if (gates.find(it->second) == gates.end())
@@ -1572,6 +1652,7 @@ public:
   void deliver(struct msg *msg)
   {
     assert(msg != NULL);
+    assert(!::replay);
 //     cout << endl;
 //     cout << "msg->from.pipe: " << msg->from.pipe << endl;
 //     cout << "msg->from.ip: " << msg->from.ip << endl;
@@ -1582,24 +1663,15 @@ public:
 //     cout << "msg->id: " << msg->id << endl;
 //     cout << "msg->len: " << msg->len << endl;
 
-    Process *process = NULL;
-
     acquire(processes);
     {
-      map<int, Process *>::iterator it = processes.find(msg->to.pipe);
-      if (it != processes.end()) {
-	process = it->second;
-      }
+      map<uint32_t, Process *>::iterator it = processes.find(msg->to.pipe);
+      if (it != processes.end())
+	it->second->enqueue(msg);
+      else
+	free(msg);
     }
     release(processes);
-
-    /* TODO(benh): What if process is cleaned up right here! */
-
-    if (process != NULL) {
-      process->enqueue(msg);
-    } else {
-      free(msg);
-    }
   }
 };
 
@@ -1675,7 +1747,7 @@ void read_data(struct ev_loop *loop, ev_io *w, int revents)
 			   errno == EBADF ||
 			   errno == EHOSTUNREACH))) {
     /* Socket has closed. */
-    perror("libprocess recv error: ");
+    //perror("libprocess recv error: ");
     //cout << "read_data: closing socket " << c << endl;
     LinkManager::instance()->closed(c);
 
@@ -1731,7 +1803,7 @@ void read_msg(struct ev_loop *loop, ev_io *w, int revents)
 			   errno == EBADF ||
 			   errno == EHOSTUNREACH))) {
     /* Socket has closed. */
-    perror("libprocess recv error: ");
+    //perror("libprocess recv error: ");
     //cout << "read_msg: closing socket " << c << endl;
     LinkManager::instance()->closed(c);
 
@@ -1802,7 +1874,7 @@ static void write_data(struct ev_loop *loop, ev_io *w, int revents)
 			   errno == EHOSTUNREACH ||
 			   errno == EPIPE))) {
     /* Socket has closed. */
-    perror("libprocess send error: ");
+    //perror("libprocess send error: ");
     //cout << "write_data: closing socket " << c << endl;
     LinkManager::instance()->closed(c);
 
@@ -1852,7 +1924,6 @@ void write_msg(struct ev_loop *loop, ev_io *w, int revents)
 		 sizeof (struct msg) - ctx->len,
 		 MSG_NOSIGNAL);
 
-
   if (len > 0) {
     ctx->len += len;
   } else if (len < 0 && errno == EWOULDBLOCK) {
@@ -1863,7 +1934,7 @@ void write_msg(struct ev_loop *loop, ev_io *w, int revents)
 			   errno == EHOSTUNREACH ||
 			   errno == EPIPE))) {
     /* Socket has closed. */
-    perror("libprocess send error: ");
+    //perror("libprocess send error: ");
     //cout << "write_msg: closing socket " << c << endl;
     LinkManager::instance()->closed(c);
 
@@ -2089,7 +2160,7 @@ void handle_accept(struct ev_loop *loop, ev_io *w, int revents)
 }
 
 
-static void * node (void *arg)
+static void * node(void *arg)
 {
   ev_loop(((struct ev_loop *) arg), 0);
 
@@ -2161,7 +2232,7 @@ void ProcessScheduler::unreg(lithe_sched_t *child)
   }
   spinlock_unlock(&lock);
 
-  cout << "child had a count of: " << count << " + 1 = " << count + 1 << endl;
+//   cout << "child had a count of: " << count << " + 1 = " << count + 1 << endl;
 }
 
 
@@ -2273,6 +2344,9 @@ void * schedule(void *arg)
   }
 
   do {
+    if (replay)
+      ProcessManager::instance()->replay();
+
     Process *process = ProcessManager::instance()->dequeue();
 
     //cout << "dequeued " << process << endl;
@@ -2336,25 +2410,12 @@ void trampoline(int process0, int process1)
 #endif /* USE_LITHE */
 
 
-void sigsev(int signal, struct sigcontext *ctx)
+void sigbad(int signal, struct sigcontext *ctx)
 {
-#ifdef USE_LITHE
-  /* TODO(benh): Implement this for Lithe? */
-  assert(0);
-#else
-  if (pthread_self() != proc_thread) {
-    /* Pass on the signal (so that a core file is produced).  */
-    struct sigaction sa;
-    sa.sa_handler = SIG_DFL;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(signal, &sa, NULL);
-    raise(signal);
-  } else {
-    /* TODO(benh): Need to use setjmp/longjmp for error handling. */
-    ProcessManager::instance()->kill(proc_process);
+  if (!replay) {
+    record_msgs.close();
+    record_pipes.close();
   }
-#endif /* USE_LITHE */
 }
 
 
@@ -2364,23 +2425,23 @@ static void initialize()
   /* Install signal handler. */
   struct sigaction sa;
 
-  sa.sa_handler = (void (*) (int)) sigsev;
+  sa.sa_handler = (void (*) (int)) sigbad;
   sigemptyset (&sa.sa_mask);
   sa.sa_flags = SA_RESTART;
 
-//   sigaction (SIGSEGV, &sa, NULL);
-
-//   sigaction (SIGILL, &sa, NULL);
-// #ifdef SIGBUS
-//   sigaction (SIGBUS, &sa, NULL);
-// #endif
-// #ifdef SIGSTKFLT
-//   sigaction (SIGSTKFLT, &sa, NULL);
-// #endif
-//   sigaction (SIGABRT, &sa, NULL);
-//   sigaction (SIGFPE, &sa, NULL);
+  sigaction (SIGSEGV, &sa, NULL);
+  sigaction (SIGILL, &sa, NULL);
+#ifdef SIGBUS
+  sigaction (SIGBUS, &sa, NULL);
+#endif
+#ifdef SIGSTKFLT
+  sigaction (SIGSTKFLT, &sa, NULL);
+#endif
+  sigaction (SIGABRT, &sa, NULL);
+  sigaction (SIGFPE, &sa, NULL);
 
 #ifdef __sun__
+  /* Need to ignore this since we can't do MSG_NOSIGNAL on Solaris. */
   signal(SIGPIPE, SIG_IGN);
 #endif /* __sun__ */
 
@@ -2401,6 +2462,58 @@ static void initialize()
   /* Check environment for port. */
   value = getenv("LIBPROCESS_PORT");
   port = value != NULL ? atoi(value) : 0;
+
+  /* Check environment for replay. */
+  value = getenv("LIBPROCESS_REPLAY");
+  replay = value != NULL;
+
+  /* Setup for record or replay. */
+  if (!replay) {
+    /* Setup record. */
+    time_t t;
+    time(&t);
+    std::string record(".record-");
+    std::string date(ctime(&t));
+
+    replace(date.begin(), date.end(), ' ', '_');
+    replace(date.begin(), date.end(), '\n', '\0');
+
+    /* TODO(benh): Create file if it doesn't exist. */
+    record_msgs.open((record + "msgs-" + date).c_str(),
+		     std::ios::out | std::ios::app);
+    record_pipes.open((record + "pipes-" + date).c_str(),
+		      std::ios::out | std::ios::app);
+    if (!record_msgs.is_open() || !record_pipes.is_open()) {
+      cerr << "could not open record(s) for recording" << endl;
+      abort();
+    }
+  } else {
+    /* Open record(s) for replay. */
+    record_msgs.open((std::string(".record-msgs-") += value).c_str(),
+		     std::ios::in);
+    record_pipes.open((std::string(".record-pipes-") += value).c_str(),
+		      std::ios::in);
+    if (!record_msgs.is_open() || !record_pipes.is_open()) {
+      cerr << "could not open record(s) with prefix "
+	   << value << " for replay" << endl;
+      abort();
+    }
+
+    /* Read in all pipes from record. */
+    while (!record_pipes.eof()) {
+      uint32_t parent, child;
+      record_pipes >> parent >> child;
+      if (record_pipes.bad()) {
+	cerr << "could not read from record" << endl;
+	abort();
+      }
+      (*replay_pipes)[parent].push_back(child);
+    }
+
+    record_pipes.close();
+  }
+
+  /* TODO(benh): Check during replay that the same ip and port is used. */
 
   // Lookup hostname if missing ip (avoids getting 127.0.0.1). Note
   // that we need only one ip address, so that other processes can
@@ -2479,7 +2592,7 @@ static void initialize()
   ev_io_init (&server_watcher, handle_accept, s, EV_READ);
   ev_io_start (loop, &server_watcher);
 
-  if (pthread_create (&io_thread, NULL, node, loop) != 0) {
+  if (pthread_create(&io_thread, NULL, node, loop) != 0) {
     cerr << "failed to initialize node (pthread_create)" << endl;
     abort();
   }
@@ -2512,7 +2625,36 @@ Process::Process()
   generation = 0;
 
   /* Initialize the PID associated with the process. */
-  pid.pipe = __sync_add_and_fetch(&global_pipe, 1);
+#ifdef USE_LITHE
+#error "TODO(benh): Make Lithe version include an htls proc_process."
+#else
+  if (!replay) {
+    /* Get a new pipe and record it for replay. */
+    pid.pipe = __sync_add_and_fetch(&global_pipe, 1);
+    if (proc_process == NULL)
+      record_pipes << " 0";
+    else
+      record_pipes << " " << proc_process->pid.pipe;
+    record_pipes << " " << pid.pipe;
+  } else {
+    /* Lookup pipe from record. */
+    map<uint32_t, deque<uint32_t> >::iterator it;
+    if (proc_process == NULL)
+      it = replay_pipes->find(0);
+    else
+      it = replay_pipes->find(proc_process->pid.pipe);
+
+    /* Check that this is an expected spawn. */
+    if (it == replay_pipes->end() && !it->second.empty()) {
+      cerr << "not expecting to spawn (this) process during replay" << endl;
+      abort();
+    }
+
+    pid.pipe = it->second.front();
+    it->second.pop_front();
+  }
+#endif /* USE_LITHE */
+
   pid.ip = ip;
   pid.port = port;
 }
@@ -2542,8 +2684,10 @@ void Process::enqueue(struct msg *msg)
 	ProcessManager::instance()->enqueue(this);
       }
 
-      assert(state == RUNNING ||
+      assert(state == INIT ||
 	     state == READY ||
+	     state == RUNNING ||
+	     state == PAUSED ||
 	     state == WAITING ||
 	     state == INTERRUPTED ||
 	     state == TIMEDOUT);
@@ -2675,6 +2819,9 @@ MSGID Process::receive(time_t secs)
 #endif /* USE_LITHE */
 
   assert (current != NULL);
+
+  if (!replay)
+    ProcessManager::instance()->record(current);
 
   return current->id;
 

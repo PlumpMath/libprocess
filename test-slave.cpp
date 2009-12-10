@@ -35,6 +35,16 @@ protected:
       std::cout << "slave failed to unregister" << std::endl;
       break;
     }
+
+    link(master);
+    switch (receive()) {
+    case PROCESS_EXIT:
+      std::cout << "master exited" << std::endl;
+      break;
+    default:
+      std::cout << "unexpected message" << std::endl;
+      break;
+    }
   }
 
 public:
@@ -44,7 +54,7 @@ public:
 
 int main(int argc, char **argv)
 {
-  PID master = { atoi(argv[1]), inet_addr(argv[2]), atoi(argv[3]) };
+  PID master = make_pid(argv[1]);
   PID slave = Process::spawn(new Slave(master));
   std::cout << "slave is at " << slave << std::endl;
   Process::wait(slave);

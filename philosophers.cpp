@@ -105,13 +105,13 @@ protected:
 	  seats.pop();
 	  diners[from()] = seat;
 	  PID first, second;
-// 	  if (seat < (seat + 1) % capacity) {
+	  if (seat < (seat + 1) % capacity) {
 	    first = utensils[seat];
 	    second = utensils[(seat + 1) % capacity];
-// 	  } else {
-// 	    first = utensils[(seat + 1) % capacity];
-// 	    second = utensils[seat];
-// 	  }
+	  } else {
+	    first = utensils[(seat + 1) % capacity];
+	    second = utensils[seat];
+	  }
 	  send<SEAT>(from(), seat, first, second);
 	} else {
 	  send<ERROR>(from(), 0);

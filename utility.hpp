@@ -2,10 +2,9 @@
 #include <string>
 
 std::string
-operator+(const std::string &s, time_t t)
+operator+(const std::string &s, int i)
 {
   std::stringstream out;
-  out << t;
+  out << i;
   return s + out.str();
 }
-

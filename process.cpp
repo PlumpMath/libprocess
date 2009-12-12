@@ -789,7 +789,7 @@ public:
     acquire(processes);
     {
       record_msgs.write((char *) msg, sizeof(struct msg) + msg->len);
-      if (record_msgs.bad()) {
+      if (record_msgs.fail()) {
 	cerr << "failed to write to messages record" << endl;
 	abort();
       }
@@ -805,9 +805,15 @@ public:
 	struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
 
 	/* Read a message worth of data. */
-	record_msgs.width(sizeof(struct msg) + 1);
-	record_msgs >> (char *) msg;
-	if (record_msgs.bad()) {
+	record_msgs.read((char *) msg, sizeof(struct msg));
+
+	if (record_msgs.eof()) {
+	  free(msg);
+	  release(processes);
+	  return;
+	}
+
+	if (record_msgs.fail()) {
 	  cerr << "failed to read from messages record" << endl;
 	  abort();
 	}
@@ -815,12 +821,11 @@ public:
 	/* Read the body of the message if necessary. */
 	if (msg->len != 0) {
 	  struct msg *temp = msg;
-	  msg = (struct msg *) malloc(sizeof(struct msg));
+	  msg = (struct msg *) malloc(sizeof(struct msg) + msg->len);
 	  memcpy(msg, temp, sizeof(struct msg));
 	  free(temp);
-	  record_msgs.width(msg->len + 1);
-	  record_msgs >> (char *) msg + sizeof(struct msg);
-	  if (record_msgs.bad()) {
+	  record_msgs.read((char *) msg + sizeof(struct msg), msg->len);
+	  if (record_msgs.fail()) {
 	    cerr << "failed to read from messages record" << endl;
 	    abort();
 	  }
@@ -1306,6 +1311,7 @@ public:
   bool wait(PID pid)
   {
     /* TODO(benh): Account for a non-libprocess task/ctx. */
+    assert(false);
 
     Process *process;
 
@@ -2416,8 +2422,15 @@ void sigbad(int signal, struct sigcontext *ctx)
     record_msgs.close();
     record_pipes.close();
   }
-}
 
+  /* Pass on the signal (so that a core file is produced).  */
+  struct sigaction sa;
+  sa.sa_handler = SIG_DFL;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(signal, &sa, NULL);
+  raise(signal);
+}
 
 
 static void initialize()
@@ -2429,6 +2442,9 @@ static void initialize()
   sigemptyset (&sa.sa_mask);
   sa.sa_flags = SA_RESTART;
 
+  sigaction (SIGTERM, &sa, NULL);
+  sigaction (SIGINT, &sa, NULL);
+  sigaction (SIGQUIT, &sa, NULL);
   sigaction (SIGSEGV, &sa, NULL);
   sigaction (SIGILL, &sa, NULL);
 #ifdef SIGBUS
@@ -2480,7 +2496,7 @@ static void initialize()
 
     /* TODO(benh): Create file if it doesn't exist. */
     record_msgs.open((record + "msgs-" + date).c_str(),
-		     std::ios::out | std::ios::app);
+		     std::ios::out | std::ios::binary | std::ios::app);
     record_pipes.open((record + "pipes-" + date).c_str(),
 		      std::ios::out | std::ios::app);
     if (!record_msgs.is_open() || !record_pipes.is_open()) {
@@ -2490,7 +2506,7 @@ static void initialize()
   } else {
     /* Open record(s) for replay. */
     record_msgs.open((std::string(".record-msgs-") += value).c_str(),
-		     std::ios::in);
+		     std::ios::in | std::ios::binary);
     record_pipes.open((std::string(".record-pipes-") += value).c_str(),
 		      std::ios::in);
     if (!record_msgs.is_open() || !record_pipes.is_open()) {
@@ -2503,7 +2519,7 @@ static void initialize()
     while (!record_pipes.eof()) {
       uint32_t parent, child;
       record_pipes >> parent >> child;
-      if (record_pipes.bad()) {
+      if (record_pipes.fail()) {
 	cerr << "could not read from record" << endl;
 	abort();
       }
@@ -2644,9 +2660,9 @@ Process::Process()
     else
       it = replay_pipes->find(proc_process->pid.pipe);
 
-    /* Check that this is an expected spawn. */
+    /* Check that this is an expected process creation. */
     if (it == replay_pipes->end() && !it->second.empty()) {
-      cerr << "not expecting to spawn (this) process during replay" << endl;
+      cerr << "not expecting to create (this) process during replay" << endl;
       abort();
     }
 
@@ -2731,6 +2747,9 @@ PID Process::from()
 void Process::send(const PID &to, MSGID id, const char *data, size_t length)
 {
   //cout << "Process::send" << endl;
+
+  if (replay)
+    return;
   
   /* Disallow sending messages using an internal id. */
   if (id < PROCESS_MSGID)
@@ -2748,7 +2767,8 @@ void Process::send(const PID &to, MSGID id, const char *data, size_t length)
   msg->id = id;
   msg->len = length;
 
-  memcpy((char *) msg + sizeof(struct msg), data, length);
+  if (length > 0)
+    memcpy((char *) msg + sizeof(struct msg), data, length);
 
 //   cout << endl;
 //   cout << "msg->from.pipe: " << msg->from.pipe << endl;
@@ -2778,7 +2798,7 @@ MSGID Process::receive(time_t secs)
 
   /* Check if there is a message queued. */
   if ((current = dequeue()) != NULL)
-    return current->id;
+    goto found;
 
 #ifdef USE_LITHE
   /* TODO(benh): Account for a non-libprocess task/ctx. */
@@ -2818,6 +2838,7 @@ MSGID Process::receive(time_t secs)
   }
 #endif /* USE_LITHE */
 
+ found:
   assert (current != NULL);
 
   if (!replay)
@@ -2842,14 +2863,13 @@ MSGID Process::receive(time_t secs)
 
 const char * Process::body(size_t *length)
 {
-  if (length == NULL)
-    return NULL;
-
   if (current && current->len > 0) {
-    *length = current->len;
+    if (length != NULL)
+      *length = current->len;
     return (char *) current + sizeof(struct msg);
   } else {
-    *length = 0;
+    if (length != NULL)
+      *length = 0;
     return NULL;
   }
 }
@@ -2857,6 +2877,9 @@ const char * Process::body(size_t *length)
 
 void Process::pause(time_t secs)
 {
+  if (replay)
+    return;
+
 #ifdef USE_LITHE
   /* TODO(benh): Handle call from non-libprocess task/ctx. */
   ProcessManager::instance()->pause(this, secs);
@@ -2908,6 +2931,49 @@ bool Process::ready(int fd, int op)
 }
 
 
+void Process::post(const PID &to, MSGID id, const char *data, size_t length)
+{
+  if (replay)
+    return;
+
+  /* Disallow sending messages using an internal id. */
+  if (id < PROCESS_MSGID)
+    return;
+
+  /* Allocate/Initialize outgoing message. */
+  struct msg *msg = (struct msg *) malloc(sizeof(struct msg) + length);
+
+  msg->from.pipe = 0;
+  msg->from.ip = 0;
+  msg->from.port = 0;
+  msg->to.pipe = to.pipe;
+  msg->to.ip = to.ip;
+  msg->to.port = to.port;
+  msg->id = id;
+  msg->len = length;
+
+  if (length > 0)
+    memcpy((char *) msg + sizeof(struct msg), data, length);
+
+//   cout << endl;
+//   cout << "msg->from.pipe: " << msg->from.pipe << endl;
+//   cout << "msg->from.ip: " << msg->from.ip << endl;
+//   cout << "msg->from.port: " << msg->from.port << endl;
+//   cout << "msg->to.pipe: " << msg->to.pipe << endl;
+//   cout << "msg->to.ip: " << msg->to.ip << endl;
+//   cout << "msg->to.port: " << msg->to.port << endl;
+//   cout << "msg->id: " << msg->id << endl;
+//   cout << "msg->len: " << msg->len << endl;
+
+  if (to.ip == ip && to.port == port)
+    /* Local message. */
+    ProcessManager::instance()->deliver(msg);
+  else
+    /* Remote message. */
+    LinkManager::instance()->send(msg);
+}
+
+
 PID Process::spawn(Process *process)
 {
   if (process != NULL) {
@@ -2926,4 +2992,13 @@ PID Process::spawn(Process *process)
 bool Process::wait(PID pid)
 {
   return ProcessManager::instance()->wait(pid);
+}
+
+
+bool Process::wait(Process *process)
+{
+  if (process == NULL)
+    return false;
+
+  return ProcessManager::instance()->wait(process->pid);
 }

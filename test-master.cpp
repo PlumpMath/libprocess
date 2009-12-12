@@ -1,8 +1,17 @@
-#include <test.hpp>
+#include <io.hpp>
+#include <tuple.hpp>
 
-using namespace process::record;
+#include <string>
 
-class Master : public RecordProcess
+#include "test.hpp"
+
+using std::string;
+
+
+using namespace process::tuple;
+
+
+class Master : public Tuple<Process>
 {
 private:
   int id;
@@ -13,30 +22,29 @@ protected:
     do {
       switch (receive()) {
       case REGISTER: {
-	std::cout << "Master received REGISTER" << std::endl;
+	Out::println("Master received REGISTER");
 
-	std::string name;
+	string name;
 	unpack<REGISTER>(name);
 
-	std::cout << "Registered slave: " << name << std::endl;
+	Out::println("Registered slave: %s", name.c_str());
 
 	send(from(), pack<OKAY>(id++));
 	break;
       }
       case UNREGISTER: {
-	std::cout << "Master received UNREGISTER" << std::endl;
+	Out::println("Master received UNREGISTER");
 
 	int slave_id;
 	unpack<UNREGISTER>(slave_id);
 
-	std::cout << "Unregistered slave id: " << slave_id << std::endl;
+	Out::println("Unregistered slave id: %d", slave_id);
 
 	send(from(), pack<OKAY>(0));
 	break;
       }
-      default: {
-	std::cout << "UNKNOWN MESSAGE RECEIVED " << std::endl;
-      }
+      default:
+	Out::println("UNKNOWN MESSAGE RECEIVED");
       }
     } while (true);
   }
@@ -49,6 +57,6 @@ public:
 int main(int argc, char **argv)
 {
   PID master = Process::spawn(new Master());
-  std::cout << master << std::endl;
+  Out::println("master: %s", string(master).c_str());
   Process::wait(master);
 }

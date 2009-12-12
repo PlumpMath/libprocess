@@ -198,11 +198,20 @@ public:
   /* Returns pid of process; valid even before calling spawn. */
   PID getPID();
 
+  /* Sends a message to PID without a return address. */
+  static void post(const PID &, MSGID);
+
+  /* Sends a message with data to PID without a return address. */
+  static void post(const PID &, MSGID, const char *data, size_t length);
+
   /* Spawn a new process. */
   static PID spawn(Process *process);
 
   /* Wait for PID to exit (returns true if actually waited). */
   static bool wait(PID pid);
+
+  /* Wait for PID to exit (returns true if actually waited). */
+  static bool wait(Process *process);
 };
 
 
@@ -228,5 +237,12 @@ inline PID Process::getPID()
 {
   return self();
 }
+
+
+inline void Process::post(const PID &to, MSGID id)
+{
+  post(to, id, NULL, 0);
+}
+
 
 #endif /* PROCESS_HPP */

@@ -1,14 +1,14 @@
 #include <iostream>
 #include <string>
 
-#include <record-process.hpp>
+#include <tuple.hpp>
 
-namespace process { namespace record {
+namespace process { namespace tuple {
 
 enum Messages { REGISTER = PROCESS_MSGID, UNREGISTER, OKAY };
 
-RECORD(REGISTER, (std::string /*name*/));
-RECORD(UNREGISTER, (int /*id*/));
-RECORD(OKAY, (int /*response*/));
+TUPLE(REGISTER, (std::string /*name*/));
+TUPLE(UNREGISTER, (int /*id*/));
+TUPLE(OKAY, (int /*response*/));
 
 }}

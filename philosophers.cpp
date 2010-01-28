@@ -148,33 +148,43 @@ protected:
   {
     Out::println("%s is at %s", name.c_str(), string(getPID()).c_str());
 
-    send<SIT>(table->getPID());
-    receive();
-    assert(msgid() == SEAT);
+    /* Our seat number. */
     int seat;
+
+    /*
+     * We communicate with the utensils via a PID, and to avoid
+     * deadlock we assign utensils an ordering.
+     */
     PID first;
     PID second;
+
+    /* Take a seat at the table. */
+    if (call<SIT>(table->getPID()) != SEAT)
+      abort();
+
     unpack<SEAT>(seat, first, second);
 
     Out::println("%s is sitting at %d", name.c_str(), seat);
 
     for (int i = 0; i < 5; i++) {
       Out::println("%s is hungry", name.c_str());
-      send<PICKUP>(first);
-      receive();
-      assert(msgid() == OKAY);
-      send<PICKUP>(second);
-      receive();
-      assert(msgid() == OKAY);
+
+      /* Pick up the utensils in order! */
+      if (call<PICKUP>(first) != OKAY || call<PICKUP>(second) != OKAY)
+	abort();
+      
       Out::println("%s is eating", name.c_str());
+
+      /* Eat. */
       pause(1);//rand() % 3 + 1);
-      send<PUTDOWN>(second);
-      receive();
-      assert(msgid() == OKAY);
-      send<PUTDOWN>(first);
-      receive();
-      assert(msgid() == OKAY);
+
+      /* Put down the utensils in order! */
+      if (call<PUTDOWN>(second) != OKAY || call<PUTDOWN>(first) != OKAY)
+	abort();
+
       Out::println("%s is thinking", name.c_str());
+
+      /* Think. */
       pause(1);//rand() % 3 + 1);
     }
   }

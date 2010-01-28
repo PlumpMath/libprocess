@@ -2861,6 +2861,14 @@ MSGID Process::receive(time_t secs)
 }
 
 
+MSGID Process::call(const PID &to, MSGID id,
+		    const char *data, size_t length, time_t secs)
+{
+  send(to, id, data, length);
+  return receive(secs);
+}
+
+
 const char * Process::body(size_t *length)
 {
   if (current && current->len > 0) {
@@ -2976,6 +2984,7 @@ void Process::post(const PID &to, MSGID id, const char *data, size_t length)
 
 PID Process::spawn(Process *process)
 {
+  //cout << "Process::spawn" << endl;
   if (process != NULL) {
     ProcessManager::instance()->spawn(process);
 #ifdef USE_LITHE

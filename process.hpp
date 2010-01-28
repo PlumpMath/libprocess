@@ -143,9 +143,9 @@ private:
   /* Dequeues a message or returns NULL. */
   struct msg * dequeue();
 
-#ifdef SWIGPYTHON
+#if defined(SWIGPYTHON) || defined(SWIGRUBY)
 public:
-#else  
+#else
 protected:
 #endif /* SWIG */
 
@@ -173,6 +173,15 @@ protected:
 
   /* Blocks for message at most specified seconds. */
   MSGID receive(time_t);
+
+  /* Sends a message to PID and then blocks for a message indefinitely. */
+  MSGID call(const PID &, MSGID);
+
+  /* Sends a message with data to PID and then blocks for a message. */
+  MSGID call(const PID &, MSGID, const char *data, size_t length);
+
+  /* Sends, and then blocks for a message at most specified seconds. */
+  MSGID call(const PID &, MSGID, const char *data, size_t length, time_t);
 
   /* Returns pointer and length of body of last dequeued (current) message. */
   const char * body(size_t *length);
@@ -224,6 +233,19 @@ inline MSGID Process::msgid()
 inline void Process::send(const PID &to, MSGID id)
 {
   send(to, id, NULL, 0);
+}
+
+
+inline MSGID Process::call(const PID &to, MSGID id)
+{
+  return call(to, id, NULL, 0);
+}
+
+
+inline MSGID Process::call(const PID &to, MSGID id,
+			   const char *data, size_t length)
+{
+  return call(to, id, NULL, 0, 0);
 }
 
 

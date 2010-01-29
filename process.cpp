@@ -1244,7 +1244,7 @@ public:
 
     process->lock();
     {
-      if (secs > 0) {
+      if (secs >= 0) {
 	/* Create/Start the timeout. */
 	start_timeout(create_timeout(process, secs));
 
@@ -2885,17 +2885,19 @@ const char * Process::body(size_t *length)
 
 void Process::pause(time_t secs)
 {
-  if (replay)
-    return;
-
 #ifdef USE_LITHE
   /* TODO(benh): Handle call from non-libprocess task/ctx. */
   ProcessManager::instance()->pause(this, secs);
 #else
-  if (pthread_self() == proc_thread)
-    ProcessManager::instance()->pause(this, secs);
-  else
+  if (pthread_self() == proc_thread) {
+    /* Might need  */
+    if (replay)
+      ProcessManager::instance()->pause(this, 0);
+    else
+      ProcessManager::instance()->pause(this, secs);
+  } else {
     sleep(secs);
+  }
 #endif /* USE_LITHE */
 }
 

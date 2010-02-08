@@ -1,6 +1,7 @@
 #ifndef PROCESS_HPP
 #define PROCESS_HPP
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <ucontext.h>
 

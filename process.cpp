@@ -185,7 +185,8 @@ static ucontext_t proc_uctx_initial;
 static ucontext_t proc_uctx_running;
 
 /* Current process of processing thread. */
-static __thread Process *proc_process;
+//static __thread Process *proc_process = NULL;
+static Process *proc_process = NULL;
 
 /* Global 'pipe' id uniquely assigned to each process. */
 static uint32_t global_pipe = 0;
@@ -2617,8 +2618,6 @@ static void initialize()
 
 Process::Process()
 {
-  //cout << "Process::Process" << endl;
-  
   static volatile bool initializing = true;
   /* Confirm everything is initialized. */
   if (!initialized) {
@@ -2647,18 +2646,13 @@ Process::Process()
   if (!replay) {
     /* Get a new pipe and record it for replay. */
     pid.pipe = __sync_add_and_fetch(&global_pipe, 1);
-    if (proc_process == NULL)
-      record_pipes << " 0";
-    else
-      record_pipes << " " << proc_process->pid.pipe;
+    record_pipes << " " << (proc_process == NULL ? 0 : proc_process->pid.pipe);
     record_pipes << " " << pid.pipe;
   } else {
     /* Lookup pipe from record. */
-    map<uint32_t, deque<uint32_t> >::iterator it;
-    if (proc_process == NULL)
-      it = replay_pipes->find(0);
-    else
-      it = replay_pipes->find(proc_process->pid.pipe);
+    map<uint32_t, deque<uint32_t> >::iterator it = proc_process == NULL
+      ? replay_pipes->find(0)
+      : replay_pipes->find(proc_process->pid.pipe);
 
     /* Check that this is an expected process creation. */
     if (it == replay_pipes->end() && !it->second.empty()) {
@@ -2986,7 +2980,6 @@ void Process::post(const PID &to, MSGID id, const char *data, size_t length)
 
 PID Process::spawn(Process *process)
 {
-  //cout << "Process::spawn" << endl;
   if (process != NULL) {
     ProcessManager::instance()->spawn(process);
 #ifdef USE_LITHE

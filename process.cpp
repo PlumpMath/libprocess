@@ -178,15 +178,23 @@ static pthread_t io_thread;
 /* Processing thread. */
 static pthread_t proc_thread;
 
-/* Initial scheduling context of processing thread. */
-static ucontext_t proc_uctx_initial;
+/* Scheduling context for processing thread. */
+static ucontext_t proc_uctx_schedule;
 
-/* Running scheduling context of processing thread. */
+/* Running context for processing thread. */
 static ucontext_t proc_uctx_running;
 
 /* Current process of processing thread. */
 //static __thread Process *proc_process = NULL;
 static Process *proc_process = NULL;
+
+/* Flag indicating if performing safe call into legacy. */
+// static __thread bool legacy = false;
+static bool legacy = false;
+
+/* Thunk to safely call into legacy. */
+// static __thread std::tr1::function<void (void)> *legacy_thunk;
+static const std::tr1::function<void (void)> *legacy_thunk;
 
 /* Global 'pipe' id uniquely assigned to each process. */
 static uint32_t global_pipe = 0;
@@ -908,7 +916,8 @@ public:
 
     process->state = Process::EXITED;
     cleanup(process);
-    setcontext(&proc_uctx_initial);
+    proc_process = NULL;
+    setcontext(&proc_uctx_schedule);
   }
 #endif /* USE_LITHE */
 
@@ -937,7 +946,8 @@ public:
   {
     process->state = Process::EXITED; // s/EXITED/KILLED ?
     cleanup(process);
-    setcontext(&proc_uctx_initial);
+    proc_process = NULL;
+    setcontext(&proc_uctx_schedule);
   }
 #endif /* USE_LITHE */
 
@@ -2345,7 +2355,7 @@ ProcessScheduler::~ProcessScheduler()
 
 void * schedule(void *arg)
 {
-  if (getcontext(&proc_uctx_initial) < 0) {
+  if (getcontext(&proc_uctx_schedule) < 0) {
     cerr << "failed to schedule (getcontext)" << endl;
     abort();
   }
@@ -2382,6 +2392,10 @@ void * schedule(void *arg)
       /* Continue process. */
       proc_process = process;
       swapcontext(&proc_uctx_running, &process->uctx);
+      while (legacy) {
+	(*legacy_thunk)();
+	swapcontext(&proc_uctx_running, &process->uctx);
+      }
       proc_process = NULL;
     }
     process->unlock();
@@ -3005,4 +3019,14 @@ bool Process::wait(Process *process)
     return false;
 
   return ProcessManager::instance()->wait(process->pid);
+}
+
+
+void Process::invoke(const std::tr1::function<void (void)> &thunk)
+{
+  legacy_thunk = &thunk;
+  legacy = true;
+  assert(proc_process != NULL);
+  swapcontext(&proc_process->uctx, &proc_uctx_running);
+  legacy = false;
 }

@@ -18,6 +18,8 @@
 #include <string>
 #include <utility>
 
+#include <tr1/functional>
+
 typedef uint16_t MSGID;
 
 const MSGID PROCESS_ERROR = 0;
@@ -222,6 +224,9 @@ public:
 
   /* Wait for PID to exit (returns true if actually waited). */
   static bool wait(Process *process);
+
+  /* Invoke the thunk in a legacy safe way. */
+  static void invoke(const std::tr1::function<void (void)> &thunk);
 };
 
 

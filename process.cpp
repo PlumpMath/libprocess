@@ -3017,6 +3017,15 @@ bool Process::wait(PID pid)
 }
 
 
+bool Process::wait(Process *process)
+{
+  if (process == NULL)
+    return false;
+
+  return wait(process->getPID());
+}
+
+
 void Process::invoke(const std::tr1::function<void (void)> &thunk)
 {
   legacy_thunk = &thunk;

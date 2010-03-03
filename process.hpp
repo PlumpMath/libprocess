@@ -273,4 +273,14 @@ inline void Process::post(const PID &to, MSGID id)
 }
 
 
+bool Process::wait(Process *process)
+{
+  if (process == NULL)
+    return false;
+
+  return wait(process->getPID());
+}
+
+
+
 #endif /* PROCESS_HPP */

@@ -3009,16 +3009,11 @@ PID Process::spawn(Process *process)
 
 bool Process::wait(PID pid)
 {
-  return ProcessManager::instance()->wait(pid);
-}
-
-
-bool Process::wait(Process *process)
-{
-  if (process == NULL)
+  /* Deadlock if we wait on ourselves. */
+  if (proc_process->pid == pid)
     return false;
 
-  return ProcessManager::instance()->wait(process->pid);
+  return ProcessManager::instance()->wait(pid);
 }
 
 

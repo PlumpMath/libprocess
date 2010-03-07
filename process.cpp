@@ -1091,7 +1091,7 @@ public:
 	       waiter->state == Process::WAITING);
 	if (waiter->state == Process::RUNNING) {
 	  waiter->state = Process::INTERRUPTED;
-	} else{ 
+	} else {
 	  waiter->state = Process::READY;
 	  enqueue(waiter);
 	}
@@ -3010,7 +3010,7 @@ PID Process::spawn(Process *process)
 bool Process::wait(PID pid)
 {
   /* Deadlock if we wait on ourselves. */
-  if (proc_process->pid == pid)
+  if (proc_process && proc_process->pid == pid)
     return false;
 
   return ProcessManager::instance()->wait(pid);

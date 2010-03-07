@@ -3009,9 +3009,19 @@ PID Process::spawn(Process *process)
 
 bool Process::wait(PID pid)
 {
-  /* Deadlock if we wait on ourselves. */
-  if (proc_process && proc_process->pid == pid)
-    return false;
+  /*
+   * N.B. This could result in a deadlock! We could check if such was
+   * the case by doing:
+   *
+   *   if (proc_process && proc_process->pid == pid) {
+   *     handle deadlock here;
+   *  }
+   *
+   * But for now, deadlocks seem like better bugs to try and fix than
+   * segmentation faults that might occur because a client thinks it
+   * has waited on a process and it is now finished (and can be
+   * cleaned up).
+   */
 
   return ProcessManager::instance()->wait(pid);
 }

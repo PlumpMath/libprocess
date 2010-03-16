@@ -211,12 +211,15 @@ static bool initialized = false;
 /* Stack of stacks. */
 static stack<void *> *stacks = new stack<void *>();
 
+/* Record? */
+static bool recording = false;
+
 /* Record(s) for replay. */
 static std::fstream record_msgs;
 static std::fstream record_pipes;
 
-/* Replay. */
-static bool replay = false;
+/* Replay? */
+static bool replaying = false;
 
 /* Replay messages (id -> queue of messages). */
 static map<uint32_t, queue<struct msg *> > *replay_msgs =
@@ -691,7 +694,7 @@ public:
 	if (pid.ip == n.ip && pid.port == n.port) {
 	  /* N.B. If we call exited(pid) we might invalidate iteration. */
 	  /* Deliver PROCESS_EXIT messages (if we aren't replaying). */
-	  if (!replay) {
+	  if (!replaying) {
 	    foreach (Process *process, processes) {
 	      struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
 	      msg->from.pipe = pid.pipe;
@@ -724,7 +727,7 @@ public:
       if (it != links.end()) {
 	set<Process *> processes = it->second;
 	/* Deliver PROCESS_EXIT messages (if we aren't replaying). */
-	if (!replay) {
+	if (!replaying) {
 	  foreach (Process *process, processes) {
 	    struct msg *msg = (struct msg *) malloc(sizeof(struct msg));
 	    msg->from.pipe = pid.pipe;
@@ -795,6 +798,7 @@ private:
 public:
   void record(struct msg *msg)
   {
+    assert(recording && !replaying);
     acquire(processes);
     {
       record_msgs.write((char *) msg, sizeof(struct msg) + msg->len);
@@ -808,6 +812,7 @@ public:
 
   void replay()
   {
+    assert(!recording && replaying);
     acquire(processes);
     {
       if (!record_msgs.eof()) {
@@ -1669,7 +1674,7 @@ public:
   void deliver(struct msg *msg)
   {
     assert(msg != NULL);
-    assert(!::replay);
+    assert(!replaying);
 //     cout << endl;
 //     cout << "msg->from.pipe: " << msg->from.pipe << endl;
 //     cout << "msg->from.ip: " << msg->from.ip << endl;
@@ -2361,12 +2366,10 @@ void * schedule(void *arg)
   }
 
   do {
-    if (replay)
+    if (replaying)
       ProcessManager::instance()->replay();
 
     Process *process = ProcessManager::instance()->dequeue();
-
-    //cout << "dequeued " << process << endl;
 
     if (process == NULL) {
       Gate::state_t old = gate->approach();
@@ -2386,8 +2389,6 @@ void * schedule(void *arg)
 	     process->state == Process::READY ||
 	     process->state == Process::INTERRUPTED ||
 	     process->state == Process::TIMEDOUT);
-
-      //cout << "continuing " << process << endl;
 
       /* Continue process. */
       proc_process = process;
@@ -2431,45 +2432,57 @@ void trampoline(int process0, int process1)
 #endif /* USE_LITHE */
 
 
-void sigbad(int signal, struct sigcontext *ctx)
-{
-  if (!replay) {
-    record_msgs.close();
-    record_pipes.close();
-  }
+/*
+ * We might need/want to catch terminating signals to close our log
+ * ... or the underlying filesystem and operating system might be
+ * robust enough to flush our last writes and close the file cleanly,
+ * or we might need to force flushes at appropriate times. However,
+ * for now, adding signal handlers freely is not allowed because they
+ * will clash with Java and Python virtual machines and causes hard to
+ * debug crashes/segfaults. This can be revisited when recording gets
+ * turned on by default.
+ */
 
-  /* Pass on the signal (so that a core file is produced).  */
-  struct sigaction sa;
-  sa.sa_handler = SIG_DFL;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sigaction(signal, &sa, NULL);
-  raise(signal);
-}
+// void sigbad(int signal, struct sigcontext *ctx)
+// {
+//   if (recording) {
+//     assert(!replaying);
+//     record_msgs.close();
+//     record_pipes.close();
+//   }
+
+//   /* Pass on the signal (so that a core file is produced).  */
+//   struct sigaction sa;
+//   sa.sa_handler = SIG_DFL;
+//   sigemptyset(&sa.sa_mask);
+//   sa.sa_flags = 0;
+//   sigaction(signal, &sa, NULL);
+//   raise(signal);
+// }
 
 
 static void initialize()
 {
-  /* Install signal handler. */
-  struct sigaction sa;
+//   /* Install signal handler. */
+//   struct sigaction sa;
 
-  sa.sa_handler = (void (*) (int)) sigbad;
-  sigemptyset (&sa.sa_mask);
-  sa.sa_flags = SA_RESTART;
+//   sa.sa_handler = (void (*) (int)) sigbad;
+//   sigemptyset (&sa.sa_mask);
+//   sa.sa_flags = SA_RESTART;
 
-  sigaction (SIGTERM, &sa, NULL);
-  sigaction (SIGINT, &sa, NULL);
-  sigaction (SIGQUIT, &sa, NULL);
-  sigaction (SIGSEGV, &sa, NULL);
-  sigaction (SIGILL, &sa, NULL);
-#ifdef SIGBUS
-  sigaction (SIGBUS, &sa, NULL);
-#endif
-#ifdef SIGSTKFLT
-  sigaction (SIGSTKFLT, &sa, NULL);
-#endif
-  sigaction (SIGABRT, &sa, NULL);
-  sigaction (SIGFPE, &sa, NULL);
+//   sigaction (SIGTERM, &sa, NULL);
+//   sigaction (SIGINT, &sa, NULL);
+//   sigaction (SIGQUIT, &sa, NULL);
+//   sigaction (SIGSEGV, &sa, NULL);
+//   sigaction (SIGILL, &sa, NULL);
+// #ifdef SIGBUS
+//   sigaction (SIGBUS, &sa, NULL);
+// #endif
+// #ifdef SIGSTKFLT
+//   sigaction (SIGSTKFLT, &sa, NULL);
+// #endif
+//   sigaction (SIGABRT, &sa, NULL);
+//   sigaction (SIGFPE, &sa, NULL);
 
 #ifdef __sun__
   /* Need to ignore this since we can't do MSG_NOSIGNAL on Solaris. */
@@ -2496,10 +2509,10 @@ static void initialize()
 
   /* Check environment for replay. */
   value = getenv("LIBPROCESS_REPLAY");
-  replay = value != NULL;
+  replaying = value != NULL;
 
-  /* Setup for record or replay. */
-  if (!replay) {
+  /* Setup for recording or replaying. */
+  if (recording && !replaying) {
     /* Setup record. */
     time_t t;
     time(&t);
@@ -2518,7 +2531,8 @@ static void initialize()
       cerr << "could not open record(s) for recording" << endl;
       abort();
     }
-  } else {
+  } else if (replaying) {
+    assert(!recording);
     /* Open record(s) for replay. */
     record_msgs.open((std::string(".record-msgs-") += value).c_str(),
 		     std::ios::in | std::ios::binary);
@@ -2592,7 +2606,7 @@ static void initialize()
     abort();
   }
 
-  /* Lookup and record assigned ip and assigned port. */
+  /* Lookup and store assigned ip and assigned port. */
   socklen_t addrlen = sizeof(addr);
   if (getsockname(s, (struct sockaddr *) &addr, &addrlen) < 0) {
     cerr << "failed to initialize (getsockname)" << endl;
@@ -2614,14 +2628,29 @@ static void initialize()
   loop = ev_default_loop(EVFLAG_AUTO);
 #endif /* __sun__ */
 
-  ev_async_init (&async_watcher, async);
-  ev_async_start (loop, &async_watcher);
+  ev_async_init(&async_watcher, async);
+  ev_async_start(loop, &async_watcher);
 
-  ev_timer_init (&timer_watcher, timeout, 0., 2100000.0);
-  ev_timer_again (loop, &timer_watcher);
+  ev_timer_init(&timer_watcher, timeout, 0., 2100000.0);
+  ev_timer_again(loop, &timer_watcher);
 
-  ev_io_init (&server_watcher, handle_accept, s, EV_READ);
-  ev_io_start (loop, &server_watcher);
+  ev_io_init(&server_watcher, handle_accept, s, EV_READ);
+  ev_io_start(loop, &server_watcher);
+
+//   ev_child_init(&child_watcher, child_exited, pid, 0);
+//   ev_child_start(loop, &cw);
+
+//   /* Install signal handler. */
+//   struct sigaction sa;
+
+//   sa.sa_handler = ev_sighandler;
+//   sigfillset (&sa.sa_mask);
+//   sa.sa_flags = SA_RESTART; /* if restarting works we save one iteration */
+//   sigaction (w->signum, &sa, 0);
+
+//   sigemptyset (&sa.sa_mask);
+//   sigaddset (&sa.sa_mask, w->signum);
+//   sigprocmask (SIG_UNBLOCK, &sa.sa_mask, 0);
 
   if (pthread_create(&io_thread, NULL, node, loop) != 0) {
     cerr << "failed to initialize node (pthread_create)" << endl;
@@ -2657,11 +2686,9 @@ Process::Process()
 #ifdef USE_LITHE
 #error "TODO(benh): Make Lithe version include an htls proc_process."
 #else
-  if (!replay) {
-    /* Get a new pipe and record it for replay. */
+  if (!replaying) {
+    /* Get a new unique pipe identifier. */
     pid.pipe = __sync_add_and_fetch(&global_pipe, 1);
-    record_pipes << " " << (proc_process == NULL ? 0 : proc_process->pid.pipe);
-    record_pipes << " " << pid.pipe;
   } else {
     /* Lookup pipe from record. */
     map<uint32_t, deque<uint32_t> >::iterator it = proc_process == NULL
@@ -2676,6 +2703,12 @@ Process::Process()
 
     pid.pipe = it->second.front();
     it->second.pop_front();
+  }
+
+  if (recording) {
+    assert(!replaying);
+    record_pipes << " " << (proc_process == NULL ? 0 : proc_process->pid.pipe);
+    record_pipes << " " << pid.pipe;
   }
 #endif /* USE_LITHE */
 
@@ -2756,7 +2789,7 @@ void Process::send(const PID &to, MSGID id, const char *data, size_t length)
 {
   //cout << "Process::send" << endl;
 
-  if (replay)
+  if (replaying)
     return;
   
   /* Disallow sending messages using an internal id. */
@@ -2849,7 +2882,7 @@ MSGID Process::receive(time_t secs)
  found:
   assert (current != NULL);
 
-  if (!replay)
+  if (recording)
     ProcessManager::instance()->record(current);
 
   return current->id;
@@ -2894,12 +2927,11 @@ const char * Process::body(size_t *length)
 void Process::pause(time_t secs)
 {
 #ifdef USE_LITHE
-  /* TODO(benh): Handle call from non-libprocess task/ctx. */
+  /* TODO(benh): Handle non-libprocess task/ctx (i.e., proc_thread below). */
   ProcessManager::instance()->pause(this, secs);
 #else
   if (pthread_self() == proc_thread) {
-    /* Might need  */
-    if (replay)
+    if (replaying)
       ProcessManager::instance()->pause(this, 0);
     else
       ProcessManager::instance()->pause(this, secs);
@@ -2951,7 +2983,7 @@ bool Process::ready(int fd, int op)
 
 void Process::post(const PID &to, MSGID id, const char *data, size_t length)
 {
-  if (replay)
+  if (replaying)
     return;
 
   /* Disallow sending messages using an internal id. */

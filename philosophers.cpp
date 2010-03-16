@@ -14,20 +14,31 @@ using std::string;
 using std::queue;
 using std::vector;
 
-using namespace process::tuple;
 
+namespace {
 
-enum { OKAY = PROCESS_MSGID, ERROR, SIT, SEAT, LEAVE, PICKUP, PUTDOWN };
+/* Include tuple implementation as "supermacro". */
+#include <tuple-impl.hpp>
 
-namespace process { namespace tuple {
-TUPLE(::OKAY, ());
-TUPLE(::ERROR, (int));
-TUPLE(::SIT, ());
-TUPLE(::SEAT, (int, PID, PID));
-TUPLE(::LEAVE, ());
-TUPLE(::PICKUP, ());
-TUPLE(::PUTDOWN, ());
-}}
+/* Message IDs between processes. */
+enum { OKAY = PROCESS_MSGID,
+       ERROR,
+       SIT,
+       SEAT,
+       LEAVE,
+       PICKUP,
+       PUTDOWN };
+
+/* Definition of tuple types for above messages. */
+TUPLE(OKAY, ());
+TUPLE(ERROR, (int));
+TUPLE(SIT, ());
+TUPLE(SEAT, (int, PID, PID));
+TUPLE(LEAVE, ());
+TUPLE(PICKUP, ());
+TUPLE(PUTDOWN, ());
+
+} /* namespace { */
 
 
 class Utensil : public Tuple<Process>

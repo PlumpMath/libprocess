@@ -1894,10 +1894,10 @@ ev_default_loop (unsigned int flags)
       if (ev_backend (EV_A))
         {
 #ifndef _WIN32
-          ev_signal_init (&childev, childcb, SIGCHLD);
-          ev_set_priority (&childev, EV_MAXPRI);
-          ev_signal_start (EV_A_ &childev);
-          ev_unref (EV_A); /* child watcher should not keep loop alive */
+/*           ev_signal_init (&childev, childcb, SIGCHLD); */
+/*           ev_set_priority (&childev, EV_MAXPRI); */
+/*           ev_signal_start (EV_A_ &childev); */
+/*           ev_unref (EV_A); /\* child watcher should not keep loop alive *\/ */
 #endif
         }
       else

@@ -1260,14 +1260,21 @@ public:
 
     process->lock();
     {
-      if (secs >= 0) {
-	/* Create/Start the timeout. */
+      if (secs > 0) {
+	/* Setup the timeout. */
 	start_timeout(create_timeout(process, secs));
 
 	/* Context switch. */
 	process->state = Process::PAUSED;
 	swapcontext(&process->uctx, &proc_uctx_running);
 	assert(process->state == Process::TIMEDOUT);
+	process->state = Process::RUNNING;
+      } else {
+	/* Modified context switch (basically a yield). */
+	process->state = Process::READY;
+	enqueue(process);
+	swapcontext(&process->uctx, &proc_uctx_running);
+	assert(process->state == Process::READY);
 	process->state = Process::RUNNING;
       }
     }

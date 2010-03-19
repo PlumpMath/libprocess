@@ -7,6 +7,7 @@
 
 namespace process { namespace serialization {
 
+/* TODO(*): Check stream errors! Report errors! Ahhhh! */
 
 void serializer::operator & (const int32_t &i)
 {
